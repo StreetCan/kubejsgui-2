@@ -1,0 +1,3359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KubeJS Script Builder</title>
+<!-- CodeMirror 5 (single-file UMD build) for JS syntax highlighting. If these fail to load
+     (offline), the editors silently fall back to a plain auto-growing textarea. -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<style>
+  :root {
+    --bg: #1b1b1b;
+    --panel: #262626;
+    --panel-alt: #2f2f2f;
+    --border: #3c3c3c;
+    --text: #e6e6e6;
+    --muted: #9a9a9a;
+    --accent: #6fbf73;
+    --danger: #d9534f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, Verdana, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 10px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header .title { font-size: 1.2em; font-weight: bold; white-space: nowrap; }
+  nav { display: flex; gap: 4px; }
+  nav button {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid transparent;
+    border-radius: 6px 6px 0 0;
+    padding: 8px 16px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 0.95em;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active {
+    color: var(--text);
+    background: var(--bg);
+    border-color: var(--border);
+    border-bottom-color: var(--bg);
+  }
+  nav button:disabled { color: #5a5a5a; cursor: not-allowed; }
+
+  .layout {
+    display: flex;
+    gap: 16px;
+    padding: 16px;
+    align-items: flex-start;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  #palette-panel { flex: 0 0 240px; position: sticky; top: 16px; }
+  #main-area { flex: 1; min-width: 0; }
+  h2 {
+    margin-top: 0;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  /* ---- palette ---- */
+  #palette-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .palette-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: grab;
+    background: var(--panel-alt);
+    border: 1px solid transparent;
+  }
+  .palette-item:hover { border-color: var(--border); }
+  .palette-item img { width: 24px; height: 24px; image-rendering: pixelated; }
+  .palette-item .name {
+    flex: 1; font-size: 0.9em; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .palette-item .count { color: var(--muted); font-size: 0.85em; }
+  #sse-status { margin-top: 10px; font-size: 0.85em; }
+  #sse-status.live { color: var(--accent); }
+  #sse-status.dead { color: var(--danger); }
+  #empty-palette { color: var(--muted); font-size: 0.9em; padding: 8px 0; }
+
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* ---- shared form bits ---- */
+  .row { margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.85em; color: var(--muted); }
+  label.inline { display: flex; align-items: center; gap: 6px; font-size: 0.9em; color: var(--muted); }
+  input[type="text"], input[type="number"], select, textarea {
+    background: var(--panel-alt); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 4px 8px; font-family: inherit;
+  }
+  button {
+    background: var(--accent); color: #102010; border: none;
+    border-radius: 4px; padding: 8px 14px; font-weight: bold; cursor: pointer;
+  }
+  button.secondary { background: var(--panel-alt); color: var(--text); border: 1px solid var(--border); }
+  .hint { color: var(--muted); font-size: 0.8em; margin: -4px 0 12px 0; }
+
+  /* ---- scan builder slots ---- */
+  .slot-grid { display: grid; gap: 4px; width: max-content; }
+  .recipe-slot {
+    width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--panel-alt); display: flex; align-items: center; justify-content: center;
+  }
+  .recipe-slot.drag-over { border-color: var(--accent); }
+  .recipe-slot img { width: 32px; height: 32px; image-rendering: pixelated; pointer-events: none; }
+  .builder-grid { display: flex; align-items: center; gap: 18px; margin-bottom: 12px; flex-wrap: wrap; }
+  .output-area { display: flex; align-items: center; gap: 10px; }
+  .output-area .arrow { font-size: 1.6em; color: var(--muted); }
+  .count-label { display: flex; flex-direction: column; font-size: 0.8em; color: var(--muted); gap: 4px; }
+  #extra-fields { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 12px; }
+  #generate-result, #mt-result { margin-top: 8px; font-size: 0.9em; min-height: 1.2em; }
+  .ok { color: var(--accent); }
+  .err { color: var(--danger); }
+  pre.preview {
+    background: #161616; border: 1px solid var(--border); border-radius: 4px;
+    padding: 10px; overflow-x: auto; font-family: 'Consolas','Courier New',monospace;
+    font-size: 0.85em; white-space: pre; margin: 0;
+  }
+
+  /* ---- folder tree ---- */
+  .tree { font-size: 0.9em; user-select: none; }
+  .tree-node { padding: 2px 0; }
+  .tree-folder > .tree-label, .tree-file { cursor: pointer; padding: 3px 6px; border-radius: 4px; }
+  .tree-folder > .tree-label:hover, .tree-file:hover { background: var(--panel-alt); }
+  .tree-children { margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--border); }
+  .tree-file.selected { background: #34452f; }
+  .src-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+  .src-universal { background: var(--accent); }
+  .src-instance { background: #5b9bd5; }
+  .src-mixed { background: linear-gradient(90deg, var(--accent) 50%, #5b9bd5 50%); }
+  .folder-name { font-weight: bold; }
+  .tree-name { vertical-align: middle; }
+
+  /* ---- template canvas ---- */
+  .canvas-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 4px; background: #141414; }
+  .template-canvas {
+    position: relative; width: 100%; min-width: 800px; height: 500px;
+    background-image: radial-gradient(#2a2a2a 1px, transparent 1px);
+    background-size: 20px 20px;
+    background-attachment: local;
+  }
+  .canvas-el { position: absolute; }
+  .canvas-el.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .builder-mode .canvas-el { cursor: move; }
+  .el-slot {
+    width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--panel-alt); display: flex; align-items: center; justify-content: center;
+  }
+  .el-slot.drag-over { border-color: var(--accent); }
+  .el-slot img { width: 34px; height: 34px; image-rendering: pixelated; pointer-events: none; }
+  .el-caption { font-size: 0.7em; color: var(--muted); text-align: center; margin-top: 2px; max-width: 70px; }
+  .el-arrow { font-size: 1.8em; color: var(--muted); line-height: 1; }
+  .el-label-text { font-weight: bold; }
+  .el-label-small { font-size: 0.8em; }
+  .el-label-medium { font-size: 1.05em; }
+  .el-label-large { font-size: 1.5em; }
+  .el-input-wrap { display: flex; flex-direction: column; gap: 2px; }
+  .el-input-wrap span { font-size: 0.7em; color: var(--muted); }
+  .el-input-wrap input, .el-input-wrap select { width: 130px; }
+
+  /* ---- element palette (builder) ---- */
+  #el-palette { display: flex; flex-direction: column; gap: 4px; }
+  .el-palette-item {
+    padding: 6px 8px; border-radius: 4px; background: var(--panel-alt);
+    border: 1px solid transparent; cursor: grab; font-size: 0.88em;
+  }
+  .el-palette-item:hover { border-color: var(--border); }
+
+  /* ---- properties panel ---- */
+  #props-panel label.field { margin-bottom: 8px; }
+  #props-empty { color: var(--muted); font-size: 0.9em; }
+
+  /* layout grids for builder/mytemplates */
+  .three-col { display: grid; grid-template-columns: 180px 1fr 220px; gap: 12px; align-items: start; }
+  .two-col { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; }
+  .editor-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  /* Let both columns stay 50/50 and scroll their own overflow instead of one growing
+     to fit a long non-wrapping line. */
+  .editor-row > .panel { min-width: 0; }
+  pre.preview { max-width: 100%; }
+  /* Plain-textarea fallback editors: auto-grown to content height via JS. */
+  #script-editor, #sb-editor, #raw-editor { width: 100%; min-height: 160px; resize: vertical;
+    white-space: pre; overflow: hidden;
+    font-family: 'Consolas','Courier New',monospace; font-size: 0.85em; }
+  /* CodeMirror grows with its content (no fixed/max height) so the editor expands
+     downward to where the script ends, like the live preview. */
+  .CodeMirror { height: auto; min-height: 160px; border: 1px solid var(--border);
+    border-radius: 4px; font-size: 0.85em; }
+  .CodeMirror-scroll { min-height: 160px; }
+
+  /* toast + context menu */
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 18px; opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 50;
+  }
+  #toast.show { opacity: 1; }
+  #ctx-menu {
+    position: fixed; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px; display: none; z-index: 60; min-width: 150px;
+  }
+  #ctx-menu button {
+    display: block; width: 100%; text-align: left; background: transparent;
+    color: var(--text); padding: 6px 10px; font-weight: normal;
+  }
+  #ctx-menu button:hover { background: var(--panel-alt); }
+  .errors { color: var(--danger); font-size: 0.85em; margin: 8px 0; }
+  .errors ul { margin: 4px 0; padding-left: 18px; }
+  .insert-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .insert-btns button { padding: 3px 8px; font-size: 0.8em; }
+  .marketplace { text-align: center; padding: 60px 20px; color: var(--muted); }
+
+  /* community tab */
+  .cm-card { border: 1px solid var(--border); border-radius: 6px; background: var(--panel-alt); padding: 10px 12px; margin-bottom: 8px; }
+  .cm-card-head { display: flex; align-items: baseline; gap: 8px; }
+  .cm-name { font-weight: bold; font-size: 1.02em; }
+  .cm-author { color: var(--muted); font-size: 0.85em; }
+  .cm-type { margin-left: auto; font-size: 0.72em; padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); }
+  .cm-desc { font-size: 0.9em; margin: 6px 0; }
+  .cm-meta { color: var(--muted); font-size: 0.8em; }
+  .cm-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .cm-tag { background: #161616; border: 1px solid var(--border); border-radius: 3px; padding: 0 6px; font-size: 0.78em; color: var(--muted); }
+  .cm-card-actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+  .cm-installed { color: var(--accent); font-size: 0.85em; font-weight: bold; }
+  .cm-view { margin-top: 8px; }
+  .cm-view pre { max-height: 300px; overflow: auto; }
+  .cm-card-err { color: var(--danger); font-size: 0.85em; }
+
+  /* modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 18px; max-width: 580px; width: 90%; max-height: 85vh; overflow: auto; }
+  .modal h3 { margin-top: 0; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .modal .warn { color: #e0b84c; }
+  .repo-row { border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-bottom: 8px; }
+  .repo-url { font-family: 'Consolas',monospace; font-size: 0.78em; word-break: break-all; }
+  .repo-row .repo-status { font-size: 0.82em; margin-top: 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  /* item builder method cards */
+  .method-card { border: 1px solid var(--border); border-radius: 4px; margin-bottom: 6px; background: var(--panel-alt); }
+  .method-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+  .method-head .grow { flex: 1; font-size: 0.92em; }
+  .method-head input[type="checkbox"] { margin: 0; }
+  .collapse-btn { background: transparent; color: var(--muted); border: none; cursor: pointer;
+    padding: 2px 6px; font-size: 0.9em; font-weight: bold; }
+  .method-body { padding: 2px 8px 10px 30px; display: flex; flex-wrap: wrap; gap: 12px; }
+  .method-body label.field { font-size: 0.8em; }
+  .method-body input[type="text"], .method-body input[type="number"], .method-body select { width: 150px; }
+  .upload-btn { display: inline-block; background: var(--panel-alt); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px; padding: 6px 12px; font-size: 0.85em; }
+  .upload-btn:hover { border-color: var(--accent); }
+  #item-icon-slot { cursor: pointer; }
+
+  /* tooltip line editor */
+  .tt-lines { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+  .tt-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    padding: 6px; border: 1px solid var(--border); border-radius: 4px; }
+  .tt-segments { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tt-chip { background: #161616; border: 1px solid var(--border); border-radius: 3px;
+    padding: 1px 6px; font-size: 0.8em; cursor: pointer; font-family: 'Consolas',monospace; }
+  .tt-chip:hover { border-color: var(--danger); }
+  .tt-input { flex: 1; min-width: 120px; }
+  .tt-palette { display: flex; flex-wrap: wrap; gap: 3px; flex: 1 1 100%; }
+  .tt-swatch { width: 16px; height: 16px; border-radius: 3px; cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25); }
+  .tt-swatch.sel { outline: 2px solid var(--text); outline-offset: 1px; }
+
+  /* block builder replace events */
+  .block-evt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; margin-bottom: 4px; }
+  .block-evt-slot { display: flex; align-items: center; gap: 6px; }
+  .block-evt-slot .hint { margin: 0; }
+
+  /* modify tab */
+  .mod-cat { display: flex; gap: 18px; margin-bottom: 14px; flex-wrap: wrap; }
+  .mod-cat label.inline { font-size: 0.95em; }
+  .mod-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .mod-field { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .mod-field > label.lbl { width: 78px; color: var(--muted); font-size: 0.82em; flex: 0 0 auto; }
+  .mod-field input[type="text"], .mod-field input[type="number"] { flex: 1; min-width: 100px; }
+  .mod-field .recipe-slot { flex: 0 0 auto; }
+  .mod-group { border: 1px solid var(--border); border-radius: 4px; padding: 10px; margin-bottom: 12px; background: var(--panel-alt); }
+  .mod-group h3 { margin: 0 0 8px; font-size: 0.85em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mod-group .sub { margin-left: 22px; }
+  .mod-preview-box { border: 1px solid var(--border); border-radius: 4px; padding: 10px;
+    background: var(--panel-alt); max-height: 320px; overflow: auto;
+    font-family: 'Consolas', monospace; font-size: 0.8em; }
+  .mod-rec-row { display: grid; grid-template-columns: 2fr 1fr 1.4fr; gap: 8px; padding: 2px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .mod-rec-row .rtype { color: var(--muted); }
+  .mod-warn { color: var(--danger); font-weight: 600; }
+  .mod-note { color: var(--muted); font-size: 0.82em; margin: 6px 0; }
+  .mod-drop-row { display: grid; grid-template-columns: 2fr 1fr 1.4fr; gap: 8px; padding: 2px 0; }
+
+  /* fluid slot */
+  .el-fluid { border: 2px solid #3a86ff; border-radius: 5px; background: rgba(58,134,255,0.08);
+    padding: 6px 8px; min-width: 180px; display: flex; flex-direction: column; gap: 5px; }
+  .el-fluid .fl-head { font-size: 0.82em; color: #8ab6ff; display: flex; align-items: center; gap: 5px; }
+  .el-fluid .fl-toggle { display: flex; gap: 10px; font-size: 0.75em; color: var(--muted); }
+  .el-fluid input[type="text"], .el-fluid input[type="number"] { width: 100%; }
+  .el-fluid .fl-amt { display: flex; align-items: center; gap: 5px; font-size: 0.78em; color: var(--muted); }
+  .el-fluid .fl-amt input { width: 70px; }
+  .el-fluid .fl-presets { display: flex; gap: 4px; flex-wrap: wrap; }
+  .el-fluid .fl-presets button { font-size: 0.72em; padding: 2px 6px; }
+  .el-fluid.edit { opacity: 0.95; }
+  .el-fluid .fl-edit-amt { font-size: 0.75em; color: var(--muted); }
+
+  /* item slot box (icon + text + tag toggle), unique steel colour */
+  .el-slot-box { border: 2px solid #8a93a6; border-radius: 5px; background: rgba(138,147,166,0.10);
+    padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+  .el-slot-row { display: flex; align-items: center; gap: 6px; }
+  .el-slot-text { font-size: 0.78em; min-width: 60px; }
+
+  /* list / array slot */
+  .el-list { border: 2px solid #6a8d3a; border-radius: 5px; background: rgba(106,141,58,0.08);
+    padding: 6px 8px; min-width: 190px; display: flex; flex-direction: column; gap: 5px; }
+  .el-list-head { font-size: 0.82em; color: #a9d06a; }
+  .el-list-drop { border: 1px dashed var(--border); border-radius: 4px; padding: 8px;
+    text-align: center; font-size: 0.72em; color: var(--muted); }
+  .el-list-drop.drag-over { border-color: var(--accent); }
+  .el-list-items { display: flex; flex-direction: column; gap: 2px; }
+  .el-list-row { display: flex; justify-content: space-between; align-items: center; gap: 6px;
+    font-size: 0.76em; background: #161616; border-radius: 3px; padding: 1px 4px; }
+  .el-list-row button { font-size: 0.7em; padding: 0 5px; }
+  .el-list-fmt { display: flex; gap: 6px; }
+  .el-list-fmt label.field { font-size: 0.68em; }
+  .el-list-fmt input { width: 48px; }
+
+  /* tag picker element */
+  .el-tagpick { border: 2px solid #b08968; border-radius: 5px; background: rgba(176,137,104,0.10);
+    padding: 6px 8px; min-width: 200px; display: flex; flex-direction: column; gap: 5px; }
+  .el-tagpick-head { font-size: 0.82em; color: #d4b59a; }
+  .el-tagpick-sel { font-size: 0.72em; color: var(--muted); }
+  .el-tagpick input { width: 100%; }
+  .el-tagpick-list { max-height: 160px; overflow-y: auto; border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px; background: #141414; }
+
+  /* fluid id element */
+  .el-fluidid { border: 2px solid #17a2b8; border-radius: 5px; background: rgba(23,162,184,0.08);
+    padding: 6px 8px; min-width: 160px; display: flex; flex-direction: column; gap: 5px; }
+  .el-fluidid-head { font-size: 0.82em; color: #5fd0e0; }
+  .el-fluidid input { width: 100%; }
+
+  /* coloured boxes around input elements (one colour per type) */
+  .el-input-wrap { border: 2px solid var(--border); border-radius: 5px; padding: 6px 8px;
+    background: rgba(255,255,255,0.02); }
+  .el-in-text   { border-color: #e08a3c; background: rgba(224,138,60,0.08); }
+  .el-in-text > span   { color: #f0ab6a; }
+  .el-in-integer { border-color: #9b5de5; background: rgba(155,93,229,0.08); }
+  .el-in-integer > span { color: #c19bf0; }
+  .el-in-float  { border-color: #e056a0; background: rgba(224,86,160,0.08); }
+  .el-in-float > span  { color: #f08ac4; }
+  .el-in-slider { border-color: #d4a017; background: rgba(212,160,23,0.08); }
+  .el-in-slider > span { color: #e8c54f; }
+  .el-in-enum   { border-color: #e25555; background: rgba(226,85,85,0.08); }
+  .el-in-enum > span   { color: #f08a8a; }
+
+  /* tags tab */
+  .tag-ns { margin-bottom: 4px; }
+  .tag-ns-head { cursor: pointer; font-weight: 600; font-size: 0.85em; color: var(--accent);
+    padding: 3px 4px; user-select: none; }
+  .tag-ns-head:hover { color: var(--text); }
+  .tag-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 16px;
+    cursor: pointer; font-size: 0.82em; border-radius: 3px; }
+  .tag-row:hover { background: var(--panel-alt); }
+  .tag-row.sel { background: rgba(58,134,255,0.18); }
+  .tag-row .cnt { color: var(--muted); }
+  #tag-browser { max-height: 60vh; overflow-y: auto; border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px; background: #141414; }
+  .tag-staged-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 0.85em; }
+  .tag-staged-row button { font-size: 0.7em; padding: 1px 6px; }
+
+  /* tag-in-slot */
+  .el-tagchip { font-family: 'Consolas', monospace; font-size: 0.72em; color: #8ab6ff;
+    border: 1px solid #3a86ff; border-radius: 3px; padding: 2px 4px; word-break: break-all; text-align: center; }
+  .el-tagtoggle { font-size: 0.68em; padding: 2px 5px; margin-top: 3px; }
+  .kg-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex;
+    align-items: center; justify-content: center; z-index: 1000; }
+  .kg-modal-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 16px; width: 440px; max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column; gap: 10px; }
+  .kg-modal-panel h2 { margin: 0; }
+  .kg-modal-list { overflow: auto; border: 1px solid var(--border); border-radius: 4px; padding: 6px; flex: 1; min-height: 200px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="title">KubeJS Script Builder</span>
+  <nav>
+    <button data-tab="mytemplates" class="active">My Templates</button>
+    <button data-tab="builder">Template Builder</button>
+    <button data-tab="items">Item Builder</button>
+    <button data-tab="blocks">Blocks</button>
+    <button data-tab="modify">Modify</button>
+    <button data-tab="scripts">Script Browser</button>
+    <button data-tab="raw">Raw Script</button>
+    <button data-tab="community">Community</button>
+  </nav>
+</header>
+
+<datalist id="dl-fluids"></datalist>
+<datalist id="dl-fluid-tags"></datalist>
+
+<div class="layout">
+  <section class="panel" id="palette-panel">
+    <h2>Item Palette</h2>
+    <div id="palette-list"></div>
+    <div id="empty-palette">Hold bedrock and right-click a chest to load items.</div>
+    <div id="sse-status" class="dead">&#9675; Disconnected</div>
+  </section>
+
+  <div id="main-area">
+    <!-- ============ MY TEMPLATES TAB ============ -->
+    <section class="tab-pane active" id="tab-mytemplates">
+      <div class="two-col">
+        <div class="panel">
+          <h2>Folder Tree</h2>
+          <div id="mt-tree" class="tree"></div>
+        </div>
+        <div class="panel">
+          <h2 id="mt-title">Canvas</h2>
+          <div class="canvas-wrap">
+            <div id="mt-canvas" class="template-canvas"></div>
+          </div>
+          <div class="hint">Drag items from the palette into slots. Right-click a slot to clear it.</div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:12px;">
+        <h2>Live Preview</h2>
+        <pre id="mt-preview" class="preview"></pre>
+        <div class="row" style="margin-top:12px;">
+          <label class="field">Script ID
+            <input type="text" id="mt-scriptid" placeholder="my_recipe">
+          </label>
+          <button id="mt-generate">Generate Script</button>
+        </div>
+        <div id="mt-result"></div>
+      </div>
+    </section>
+
+    <!-- ============ TEMPLATE BUILDER TAB ============ -->
+    <section class="tab-pane" id="tab-builder">
+      <div class="three-col">
+        <div class="panel">
+          <h2>Elements</h2>
+          <div id="el-palette"></div>
+          <div class="hint" style="margin-top:8px;">Drag onto the canvas. Click to select, Delete to remove.</div>
+        </div>
+        <div class="panel">
+          <h2>Canvas</h2>
+          <div class="row" style="margin-bottom:8px;">
+            <label class="inline"><input type="checkbox" id="snap-toggle"> Snap to grid</label>
+            <label class="inline">Increment
+              <input type="number" id="snap-size" value="20" min="1" style="width:64px;"> px
+            </label>
+          </div>
+          <div class="canvas-wrap">
+            <div id="builder-canvas" class="template-canvas builder-mode"></div>
+          </div>
+          <div class="row" style="margin-top:12px;">
+            <label class="field">Template name
+              <input type="text" id="tpl-name" placeholder="My Template">
+            </label>
+            <label class="field">Author
+              <input type="text" id="tpl-author" placeholder="you">
+            </label>
+            <label class="field">Script type
+              <select id="tpl-type">
+                <option value="template" selected>Template</option>
+                <option value="server">Server</option>
+                <option value="client">Client</option>
+                <option value="startup">Startup</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="panel" id="props-panel">
+          <h2>Properties</h2>
+          <div id="props-empty">Select an element to edit its properties.</div>
+          <div id="props-fields"></div>
+        </div>
+      </div>
+
+      <div class="editor-row">
+        <div class="panel">
+          <h2>Script Editor</h2>
+          <textarea id="script-editor" spellcheck="false"></textarea>
+          <div class="insert-btns" id="insert-btns"></div>
+        </div>
+        <div class="panel">
+          <h2>Live Preview (dummy values)</h2>
+          <pre id="builder-preview" class="preview"></pre>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:12px;">
+        <div id="validation-errors" class="errors"></div>
+        <div class="row">
+          <button id="btn-validate" class="secondary">Validate</button>
+          <button id="btn-clear-canvas" class="secondary">Clear Canvas</button>
+          <button id="btn-save-instance">Save to Instance</button>
+          <button id="btn-save-universal">Save to Universal</button>
+          <button id="btn-load-existing" class="secondary">Load Existing...</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ITEM BUILDER TAB ============ -->
+    <section class="tab-pane" id="tab-items">
+      <div class="two-col">
+        <div class="panel">
+          <h2>Item Builder</h2>
+          <div class="row">
+            <label class="field">Item ID
+              <input type="text" id="item-id" placeholder="custom_sword">
+            </label>
+          </div>
+
+          <h2 style="margin-top:14px;">Icon</h2>
+          <div class="row">
+            <div class="recipe-slot" id="item-icon-slot" title="Drag an item here for its texture"></div>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <label class="inline" style="cursor:pointer;">
+                <input type="file" id="item-icon-upload" accept="image/png" style="display:none;">
+                <span class="upload-btn">Upload PNG…</span>
+              </label>
+              <span class="hint" id="item-icon-note" style="margin:0;">Drag an item for its texture, or upload a custom PNG.</span>
+            </div>
+          </div>
+
+          <h2 style="margin-top:14px;">Methods</h2>
+          <div id="item-methods"></div>
+
+          <div class="row" style="margin-top:12px;">
+            <button id="item-generate">Generate Item</button>
+          </div>
+          <div id="item-result"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Live Preview</h2>
+          <pre id="item-preview" class="preview"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ BLOCKS TAB ============ -->
+    <section class="tab-pane" id="tab-blocks">
+      <div class="two-col">
+        <div class="panel">
+          <h2>Block Builder</h2>
+          <div class="row">
+            <label class="field">Script ID
+              <input type="text" id="block-id" placeholder="my_block_tweak">
+            </label>
+          </div>
+
+          <h2 style="margin-top:14px;">Target block</h2>
+          <div class="row">
+            <div id="block-target-wrap"></div>
+            <span class="hint" id="block-target-note" style="margin:0;">Drag a block from the palette.</span>
+          </div>
+
+          <h2 style="margin-top:14px;">Modify properties</h2>
+          <div id="block-props"></div>
+
+          <h2 style="margin-top:14px;">Replace</h2>
+          <div id="block-replace"></div>
+
+          <div class="row" style="margin-top:12px;">
+            <button id="block-generate">Generate Block Script</button>
+          </div>
+          <div id="block-result"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Live Preview</h2>
+          <pre id="block-preview" class="preview"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MODIFY TAB ============ -->
+    <section class="tab-pane" id="tab-modify">
+      <!-- ---- Recipe modification ---- -->
+      <div class="mod-two" id="mod-recipes">
+        <div class="panel">
+          <h2>Recipe Modification</h2>
+          <div class="row">
+            <label class="field">Operation
+              <select id="mr-op">
+                <option value="remove">Remove Recipe</option>
+                <option value="removeByOutput">Remove by Output</option>
+                <option value="removeByInput">Remove by Input</option>
+                <option value="removeByType">Remove by Type</option>
+                <option value="replaceInput">Replace Ingredient</option>
+                <option value="replaceOutput">Replace Output</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="mr-filters">
+            <div class="mod-note">Filters are optional and combinable. An empty filter set matches every recipe.</div>
+            <div class="mod-field" data-f="output"><label class="lbl">Output</label><div id="mr-output"></div></div>
+            <div class="mod-field" data-f="input"><label class="lbl">Input</label><div id="mr-input"></div></div>
+            <div class="mod-field" data-f="type"><label class="lbl">Type</label>
+              <select id="mr-type"><option value="">All types</option></select>
+            </div>
+            <div class="mod-field" data-f="id"><label class="lbl">ID</label>
+              <input type="text" id="mr-id" list="dl-recipe-ids" placeholder="e.g. minecraft:crafting/oak_planks">
+            </div>
+          </div>
+
+          <div id="mr-replace" style="display:none;">
+            <div class="mod-field"><label class="lbl">Find</label><div id="mr-find"></div></div>
+            <div class="mod-field"><label class="lbl">Replace</label><div id="mr-rep"></div></div>
+            <div class="mod-note">Scope filter (optional — leave empty to apply to all recipes):</div>
+            <div class="mod-field"><label class="lbl">Type</label>
+              <select id="mr-scope-type"><option value="">All types</option></select>
+            </div>
+            <div class="mod-field"><label class="lbl">Output</label><div id="mr-scope-output"></div></div>
+          </div>
+
+          <div class="row" style="margin-top:12px;">
+            <label class="field">Script ID
+              <input type="text" id="mr-scriptid" placeholder="remove_plank_recipes">
+            </label>
+            <button id="mr-generate">Generate Script</button>
+          </div>
+          <div id="mr-result"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Matching Recipes Preview</h2>
+          <div id="mr-preview-summary" class="mod-note"></div>
+          <div id="mr-preview" class="mod-preview-box"></div>
+        </div>
+      </div>
+
+      <datalist id="dl-items"></datalist>
+      <datalist id="dl-recipe-ids"></datalist>
+    </section>
+
+    <!-- ============ SCRIPT BROWSER TAB ============ -->
+    <section class="tab-pane" id="tab-scripts">
+      <div class="two-col">
+        <div class="panel">
+          <h2>kubejs scripts</h2>
+          <div id="sb-tree" class="tree"></div>
+        </div>
+        <div class="panel">
+          <h2 id="sb-title">Editor</h2>
+          <div class="row" style="margin-bottom:8px;">
+            <button id="sb-save">Save</button>
+            <button id="sb-rename" class="secondary">Rename</button>
+            <button id="sb-toggle" class="secondary">Disable</button>
+            <button id="sb-delete" class="secondary">Delete</button>
+            <span id="sb-path" class="hint" style="margin:0;"></span>
+          </div>
+          <textarea id="sb-editor" spellcheck="false"></textarea>
+          <div id="sb-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ RAW SCRIPT TAB ============ -->
+    <section class="tab-pane" id="tab-raw">
+      <div class="panel">
+        <div class="row">
+          <label class="field">Name
+            <input type="text" id="raw-name" placeholder="my_script">
+          </label>
+          <label class="field">Author (optional)
+            <input type="text" id="raw-author" placeholder="you">
+          </label>
+          <label class="inline">Save as
+            <select id="raw-type">
+              <option value="server">Server</option>
+              <option value="client">Client</option>
+              <option value="startup">Startup</option>
+              <option value="template">Template</option>
+            </select>
+          </label>
+          <button id="raw-save">Save</button>
+          <button id="raw-new" class="secondary">New</button>
+          <button id="raw-load" class="secondary">Load…</button>
+        </div>
+        <div class="hint">Saving always writes a .kubeguitemplate; server/client/startup also write a runnable .js into that scripts folder.</div>
+        <textarea id="raw-editor" spellcheck="false"></textarea>
+        <div id="raw-result"></div>
+      </div>
+    </section>
+
+    <!-- ============ COMMUNITY TAB ============ -->
+    <section class="tab-pane" id="tab-community">
+      <div class="panel">
+        <div class="row" style="justify-content:space-between; align-items:flex-end;">
+          <div class="row" style="margin:0; gap:10px;">
+            <input type="text" id="cm-search" placeholder="Search by name or tag…" style="width:220px;">
+            <label class="inline">Type
+              <select id="cm-type">
+                <option value="all">All</option>
+                <option value="server">server</option>
+                <option value="client">client</option>
+                <option value="startup">startup</option>
+                <option value="template">template</option>
+              </select>
+            </label>
+            <label class="inline">Repo <select id="cm-repo"><option value="all">All</option></select></label>
+          </div>
+          <div class="row" style="margin:0; gap:8px;">
+            <button id="cm-manage" class="secondary">Manage Repos</button>
+            <button id="cm-refresh" class="secondary">Refresh</button>
+          </div>
+        </div>
+        <div id="cm-errors" class="errors"></div>
+        <div id="cm-list"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="ctx-menu"></div>
+
+<script>
+/* ====================================================================== */
+/* Shared helpers                                                          */
+/* ====================================================================== */
+const PLACEHOLDER_ICON =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E" +
+  "%3Crect width='16' height='16' fill='%23888888'/%3E%3C/svg%3E";
+
+// Sets an <img> src for a Minecraft item id, trying the item texture first, then the block
+// texture (block items have no item/<name>.png), then a grey placeholder.
+function setItemSrc(img, id) {
+  const parts = id.split(':');
+  const namespace = parts[0];
+  const name = parts.length > 1 ? parts[1] : parts[0];
+  if (namespace !== 'minecraft') { img.src = PLACEHOLDER_ICON; return; }
+  const base = 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.21/assets/minecraft/textures/';
+  const candidates = [base + 'item/' + name + '.png', base + 'block/' + name + '.png', PLACEHOLDER_ICON];
+  let i = 0;
+  img.onerror = () => {
+    i++;
+    if (i < candidates.length) { img.src = candidates[i]; } else { img.onerror = null; }
+  };
+  img.src = candidates[0];
+}
+
+function el(tag, props, children) {
+  const node = document.createElement(tag);
+  if (props) Object.assign(node, props);
+  if (children) for (const c of children) node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  return node;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// Wraps a <textarea> in a CodeMirror JS editor (syntax highlighting, auto-growing height).
+// Falls back to a plain auto-resizing textarea if CodeMirror failed to load (offline).
+function createCodeEditor(textarea, onChange) {
+  let cm = null;
+  if (typeof CodeMirror !== 'undefined') {
+    try {
+      cm = CodeMirror.fromTextArea(textarea, {
+        mode: 'javascript', theme: 'material-darker',
+        lineNumbers: true, lineWrapping: false, tabSize: 2,
+        viewportMargin: Infinity, // render all lines so the editor grows to fit content
+      });
+      cm.on('change', () => { textarea.value = cm.getValue(); if (onChange) onChange(); });
+    } catch (e) { cm = null; }
+  }
+  const grow = () => { textarea.style.height = 'auto'; textarea.style.height = textarea.scrollHeight + 'px'; };
+  if (!cm) {
+    textarea.addEventListener('input', () => { grow(); if (onChange) onChange(); });
+    setTimeout(grow, 0);
+  }
+  return {
+    isCM: !!cm,
+    getValue: () => cm ? cm.getValue() : textarea.value,
+    setValue: (v) => { if (cm) { cm.setValue(v); } else { textarea.value = v; grow(); } },
+    replaceSelection: (t) => {
+      if (cm) { cm.replaceSelection(t); cm.focus(); return; }
+      const s = textarea.selectionStart, e = textarea.selectionEnd;
+      textarea.value = textarea.value.slice(0, s) + t + textarea.value.slice(e);
+      textarea.selectionStart = textarea.selectionEnd = s + t.length;
+      textarea.focus();
+      textarea.dispatchEvent(new Event('input'));
+    },
+    refresh: () => { if (cm) cm.refresh(); },
+  };
+}
+
+/* ====================================================================== */
+/* Tabs                                                                    */
+/* ====================================================================== */
+document.querySelectorAll('nav button[data-tab]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    document.querySelectorAll('nav button[data-tab]').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    if (tab === 'mytemplates') loadTemplateTree('mt-tree', onPickTemplate);
+    if (tab === 'scripts') { loadScriptTree(); sbEditor.refresh(); }
+    if (tab === 'community') loadCommunity();
+    if (tab === 'modify') initModifyTab();
+    if (tab === 'raw') rawEditor.refresh();
+    // CodeMirror mis-measures while its pane is display:none, so refresh once shown.
+    if (tab === 'builder') builderEditor.refresh();
+  });
+});
+
+/* ====================================================================== */
+/* Item palette (always visible)                                           */
+/* ====================================================================== */
+function renderPalette(items) {
+  const list = document.getElementById('palette-list');
+  const empty = document.getElementById('empty-palette');
+  list.innerHTML = '';
+  if (!items || items.length === 0) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  for (const item of items) {
+    const row = el('div', { className: 'palette-item', draggable: true });
+    row.dataset.itemId = item.id;
+    const img = el('img', { alt: item.displayName });
+    setItemSrc(img, item.id);
+    const name = el('span', { className: 'name', textContent: item.displayName });
+    const count = el('span', { className: 'count', textContent: '×' + item.count });
+    row.append(img, name, count);
+    row.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', item.id));
+    list.appendChild(row);
+  }
+}
+
+function setSseStatus(live) {
+  const s = document.getElementById('sse-status');
+  s.textContent = live ? '● Live' : '○ Disconnected';
+  s.className = live ? 'live' : 'dead';
+}
+
+function loadInitialItems() {
+  fetch('/items').then((r) => r.json()).then(renderPalette).catch(() => renderPalette([]));
+}
+function connectEvents() {
+  const source = new EventSource('/events');
+  source.onopen = () => setSseStatus(true);
+  source.onerror = () => setSseStatus(false);
+  source.onmessage = (e) => {
+    setSseStatus(true);
+    try { renderPalette(JSON.parse(e.data)); } catch (err) { console.error(err); }
+  };
+}
+
+/* ====================================================================== */
+/* Shared slot / result / script helpers (used across tabs)                */
+/* ====================================================================== */
+function renderSlotImg(slotEl, id) {
+  slotEl.innerHTML = '';
+  if (!id) return;
+  const img = el('img', { title: id });
+  setItemSrc(img, id);
+  slotEl.appendChild(img);
+}
+
+function setResult(id, msg, cls) {
+  const e = document.getElementById(id);
+  e.textContent = msg; e.className = cls;
+}
+
+function postScript(body, resultId) {
+  fetch('/script', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then((r) => r.json())
+    .then((d) => {
+      if (d.success) setResult(resultId, '✔ ' + d.path + ' written! Run /kubejs reload to apply.', 'ok');
+      else setResult(resultId, '✖ ' + d.error, 'err');
+    })
+    .catch((e) => setResult(resultId, '✖ Request failed: ' + e, 'err'));
+}
+
+/* ====================================================================== */
+/* Template format: JS parser / serializer (mirror of Java)                */
+/* ====================================================================== */
+function parseTemplate(text) {
+  const meta = {}; const elements = []; let script = '';
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  let inScript = false; const scriptLines = [];
+  for (const line of lines) {
+    if (!inScript && line.trim() === 'SCRIPT_START') { inScript = true; continue; }
+    if (inScript) {
+      if (line.trim() === 'SCRIPT_END') { inScript = false; continue; }
+      scriptLines.push(line); continue;
+    }
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const first = trimmed.split(';')[0].trim();
+    if (['slot', 'label', 'arrow', 'input', 'fluidslot', 'list', 'fluidid', 'tagpick'].includes(first)) elements.push(parseElement(trimmed));
+    else {
+      const sep = trimmed.indexOf(';');
+      if (sep > 0) meta[trimmed.slice(0, sep).trim()] = trimmed.slice(sep + 1).trim();
+    }
+  }
+  script = scriptLines.join('\n');
+  return { meta, elements, script };
+}
+
+function parseElement(line) {
+  const t = line.split(';').map((s) => s.trim());
+  const e = { kind: t[0], x: 0, y: 0 };
+  const n = (v) => { const x = parseInt(v, 10); return isNaN(x) ? 0 : x; };
+  if (t[0] === 'slot') { e.id = t[1]; e.x = n(t[2]); e.y = n(t[3]); e.label = t[4] || ''; e.def = t[5] || ''; }
+  else if (t[0] === 'fluidslot') { e.id = t[1]; e.x = n(t[2]); e.y = n(t[3]); e.label = t[4] || ''; e.amount = t[5] || '1000'; e.min = t[6] || ''; e.max = t[7] || ''; }
+  else if (t[0] === 'list') { e.id = t[1]; e.x = n(t[2]); e.y = n(t[3]); e.label = t[4] || ''; e.prefix = t[5] !== undefined ? t[5] : "'"; e.suffix = t[6] !== undefined ? t[6] : "'"; e.delimiter = t[7] !== undefined ? t[7] : ','; }
+  else if (t[0] === 'fluidid') { e.id = t[1]; e.x = n(t[2]); e.y = n(t[3]); e.label = t[4] || ''; }
+  else if (t[0] === 'tagpick') { e.id = t[1]; e.x = n(t[2]); e.y = n(t[3]); e.label = t[4] || ''; e.tagType = t[5] || 'item'; }
+  else if (t[0] === 'label') { e.label = t[1] || ''; e.x = n(t[2]); e.y = n(t[3]); e.size = t[4] || 'medium'; }
+  else if (t[0] === 'arrow') { e.direction = t[1]; e.x = n(t[2]); e.y = n(t[3]); e.x2 = n(t[4]); e.y2 = n(t[5]); }
+  else if (t[0] === 'input') {
+    e.inputType = t[1]; e.id = t[2]; e.x = n(t[3]); e.y = n(t[4]); e.label = t[5] || '';
+    if (e.inputType === 'text') e.placeholder = t[6] || '';
+    else if (e.inputType === 'integer' || e.inputType === 'float') { e.def = t[6]||''; e.min = t[7]||''; e.max = t[8]||''; }
+    else if (e.inputType === 'slider') { e.def = t[6]||''; e.min = t[7]||''; e.max = t[8]||''; e.step = t[9]||''; }
+    else if (e.inputType === 'enum') { e.def = t[6]||''; e.options = (t[7]||'').split(',').map(s=>s.trim()).filter(Boolean); }
+  }
+  return e;
+}
+
+function elementToLine(e) {
+  const nv = (v) => v == null ? '' : v;
+  if (e.kind === 'slot') {
+    let s = `slot;${nv(e.id)};${e.x};${e.y};${nv(e.label)}`;
+    if (nv(e.def) !== '') s += `;${nv(e.def)}`;
+    return s;
+  }
+  if (e.kind === 'fluidslot') {
+    let s = `fluidslot;${nv(e.id)};${e.x};${e.y};${nv(e.label)};${nv(e.amount) || '1000'}`;
+    if (nv(e.min) !== '' || nv(e.max) !== '') s += `;${nv(e.min)};${nv(e.max)}`;
+    return s;
+  }
+  if (e.kind === 'list') {
+    const pre = e.prefix != null ? e.prefix : "'";
+    const suf = e.suffix != null ? e.suffix : "'";
+    const del = e.delimiter != null ? e.delimiter : ',';
+    return `list;${nv(e.id)};${e.x};${e.y};${nv(e.label)};${pre};${suf};${del}`;
+  }
+  if (e.kind === 'fluidid') return `fluidid;${nv(e.id)};${e.x};${e.y};${nv(e.label)}`;
+  if (e.kind === 'tagpick') return `tagpick;${nv(e.id)};${e.x};${e.y};${nv(e.label)};${e.tagType || 'item'}`;
+  if (e.kind === 'label') return `label;${nv(e.label)};${e.x};${e.y};${e.size || 'medium'}`;
+  if (e.kind === 'arrow') return `arrow;${nv(e.direction)};${e.x};${e.y};${e.x2 != null ? e.x2 : e.x};${e.y2 != null ? e.y2 : e.y}`;
+  if (e.kind === 'input') {
+    let s = `input;${nv(e.inputType)};${nv(e.id)};${e.x};${e.y};${nv(e.label)}`;
+    if (e.inputType === 'text') s += ';' + nv(e.placeholder);
+    else if (e.inputType === 'integer' || e.inputType === 'float') s += `;${nv(e.def)};${nv(e.min)};${nv(e.max)}`;
+    else if (e.inputType === 'slider') s += `;${nv(e.def)};${nv(e.min)};${nv(e.max)};${nv(e.step)}`;
+    else if (e.inputType === 'enum') s += `;${nv(e.def)};${(e.options || []).join(',')}`;
+    return s;
+  }
+  return '';
+}
+
+function serializeTemplate(tpl) {
+  let s = '# Generated by KubeJS GUI Template Builder\n\n# --- METADATA ---\n';
+  for (const [k, v] of Object.entries(tpl.meta)) s += `${k};${v}\n`;
+  s += '\n# --- CANVAS ELEMENTS ---\n';
+  for (const e of tpl.elements) s += elementToLine(e) + '\n';
+  s += '\n# --- SCRIPT ---\nSCRIPT_START\n' + tpl.script + (tpl.script.endsWith('\n') ? '' : '\n') + 'SCRIPT_END\n';
+  return s;
+}
+
+/* {{var}} substitution mirror of TemplateScriptGenerator */
+function applyTemplate(script, values) {
+  let s = applySections(script, values);
+  for (const [k, v] of Object.entries(values)) s = s.split('{{' + k + '}}').join(v == null ? '' : v);
+  return s;
+}
+function applySections(script, values) {
+  const re = /\{\{#([a-z0-9_]+)\}\}([\s\S]*?)\{\{\/\1\}\}/;
+  let s = script, m;
+  while ((m = re.exec(s)) !== null) {
+    const keep = truthy(values[m[1]]);
+    s = s.slice(0, m.index) + (keep ? m[2] : '') + s.slice(m.index + m[0].length);
+  }
+  return s;
+}
+function truthy(v) {
+  if (v == null) return false;
+  const x = String(v).trim().toLowerCase();
+  return x !== '' && x !== 'false' && x !== 'none' && x !== '0';
+}
+
+/* ====================================================================== */
+/* Folder tree rendering (shared by My Templates + Load Existing)          */
+/* ====================================================================== */
+// A small coloured dot indicating where a template lives (green = universal, blue = instance,
+// split = mixed). The exact source is in the dot's tooltip.
+function sourceDot(src) {
+  const cls = src === 'universal' ? 'src-universal' : src === 'instance' ? 'src-instance' : 'src-mixed';
+  return el('span', { className: 'src-dot ' + cls, title: src });
+}
+
+function loadTemplateTree(targetId, onFileClick) {
+  fetch('/templates').then((r) => r.json()).then((data) => {
+    const container = document.getElementById(targetId);
+    container.innerHTML = '';
+    if (!data.tree || data.tree.length === 0) {
+      container.appendChild(el('div', { className: 'hint', textContent: 'No templates yet. Create one in the Template Builder.' }));
+      return;
+    }
+    for (const node of data.tree) container.appendChild(renderTreeNode(node, '', onFileClick));
+  }).catch(() => {});
+}
+
+function renderTreeNode(node, parentPath, onFileClick) {
+  if (node.type === 'folder') {
+    const wrap = el('div', { className: 'tree-node tree-folder' });
+    const path = parentPath ? parentPath + '/' + node.name : node.name;
+    const label = el('div', { className: 'tree-label' });
+    label.appendChild(el('span', { className: 'tree-name folder-name', textContent: node.name }));
+    const children = el('div', { className: 'tree-children' });
+    label.addEventListener('click', () => { children.style.display = children.style.display === 'none' ? 'block' : 'none'; });
+    label.addEventListener('contextmenu', (e) => { e.preventDefault(); folderContextMenu(e, path, node); });
+    for (const c of (node.children || [])) children.appendChild(renderTreeNode(c, path, onFileClick));
+    wrap.append(label, children);
+    return wrap;
+  }
+  const file = el('div', { className: 'tree-node tree-file' });
+  file.appendChild(el('span', { className: 'tree-name', textContent: node.name }));
+  file.dataset.path = node.path;
+  file.addEventListener('click', () => {
+    document.querySelectorAll('#mt-tree .tree-file').forEach((f) => f.classList.remove('selected'));
+    file.classList.add('selected');
+    onFileClick(node);
+  });
+  file.addEventListener('contextmenu', (e) => { e.preventDefault(); fileContextMenu(e, node); });
+  return file;
+}
+
+/* ====================================================================== */
+/* Context menu                                                            */
+/* ====================================================================== */
+const ctxMenu = document.getElementById('ctx-menu');
+function openContextMenu(e, items) {
+  ctxMenu.innerHTML = '';
+  for (const it of items) {
+    const b = el('button', { textContent: it.label });
+    b.addEventListener('click', () => { ctxMenu.style.display = 'none'; it.action(); });
+    ctxMenu.appendChild(b);
+  }
+  ctxMenu.style.left = e.clientX + 'px';
+  ctxMenu.style.top = e.clientY + 'px';
+  ctxMenu.style.display = 'block';
+}
+document.addEventListener('click', () => { ctxMenu.style.display = 'none'; });
+
+function fileContextMenu(e, node) {
+  openContextMenu(e, [
+    { label: 'Edit', action: () => editTemplate(node) },
+    { label: 'Rename', action: () => renameTemplate(node) },
+    { label: 'Delete', action: () => deleteTemplate(node) },
+    { label: 'Show in Explorer', action: () => { navigator.clipboard && navigator.clipboard.writeText(node.path); showToast('Path copied: ' + node.path); } },
+  ]);
+}
+function folderContextMenu(e, path, node) {
+  openContextMenu(e, [
+    { label: 'New Template', action: () => { switchToBuilder(); showToast('Build a template, then save into "' + node.name + '"'); } },
+    { label: 'New Folder', action: () => createFolder(node) },
+  ]);
+}
+
+function deleteTemplate(node) {
+  if (!confirm('Delete ' + node.filename + '?')) return;
+  fetch('/templates/file?path=' + encodeURIComponent(node.path), { method: 'DELETE' })
+    .then((r) => r.json()).then((d) => {
+      if (d.success) { showToast('Deleted ' + node.filename); loadTemplateTree('mt-tree', onPickTemplate); }
+      else showToast('Delete failed: ' + d.error);
+    });
+}
+function renameTemplate(node) {
+  const newName = prompt('New name (without extension):', node.name);
+  if (!newName) return;
+  fetch('/templates/file?path=' + encodeURIComponent(node.path)).then((r) => r.text()).then((content) => {
+    const loc = node.source === 'universal' ? 'universal' : 'instance';
+    // Replace the metadata name and re-save under the new filename in the same folder.
+    const slash = node.path.lastIndexOf('/');
+    const rootMarker = loc === 'universal' ? 'kubejs-gui-templates/' : 'kubejs_gui_templates/';
+    const idx = node.path.indexOf(rootMarker);
+    const rel = idx >= 0 ? node.path.slice(idx + rootMarker.length) : node.filename;
+    const relDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
+    const newRel = relDir + newName.replace(/\s+/g, '_') + '.kubeguitemplate';
+    saveRaw(newRel, loc, content, false).then((ok) => {
+      if (ok) fetch('/templates/file?path=' + encodeURIComponent(node.path), { method: 'DELETE' })
+        .then(() => { showToast('Renamed to ' + newName); loadTemplateTree('mt-tree', onPickTemplate); });
+    });
+  });
+}
+function createFolder(node) {
+  const name = prompt('New folder name:');
+  if (!name) return;
+  const loc = node.source === 'instance' ? 'instance' : 'universal';
+  fetch('/templates/folder?location=' + loc + '&path=' + encodeURIComponent(node.name + '/' + name), { method: 'POST' })
+    .then((r) => r.json()).then((d) => {
+      if (d.success) { showToast('Folder created'); loadTemplateTree('mt-tree', onPickTemplate); }
+      else showToast('Failed: ' + d.error);
+    });
+}
+
+/* ====================================================================== */
+/* MY TEMPLATES TAB - canvas in "use" mode                                 */
+/* ====================================================================== */
+let mtTemplate = null, mtValues = {};
+
+function onPickTemplate(node) {
+  fetch('/templates/file?path=' + encodeURIComponent(node.path)).then((r) => r.text()).then((text) => {
+    mtTemplate = parseTemplate(text);
+    mtValues = {};
+    document.getElementById('mt-title').textContent = mtTemplate.meta.name || node.name;
+    document.getElementById('mt-scriptid').value = (mtTemplate.meta.name || node.name).toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+    renderUseCanvas();
+    updateMtPreview();
+  });
+}
+
+function renderUseCanvas() {
+  const canvas = document.getElementById('mt-canvas');
+  canvas.innerHTML = '';
+  for (const e of mtTemplate.elements) canvas.appendChild(renderCanvasElement(e, 'use'));
+}
+
+function renderCanvasElement(e, mode) {
+  const wrap = el('div', { className: 'canvas-el' });
+  wrap.style.left = e.x + 'px';
+  wrap.style.top = e.y + 'px';
+  wrap._element = e;
+
+  if (e.kind === 'slot') {
+    const slot = el('div', { className: 'el-slot' });
+    let toggleBtn = null;
+    let textInput = null;
+    const refreshToggle = () => {
+      if (!toggleBtn) return;
+      const v = mtValues[e.id];
+      toggleBtn.textContent = (v && String(v).startsWith('#')) ? '📦 Use item instead' : '🏷 Use tag instead';
+    };
+    const sizeInput = () => { if (textInput) textInput.size = Math.max(6, (textInput.value.length || 0) + 1); };
+    // Single setter so drag / tag-pick / typing all stay in sync (value, icon, text box, preview).
+    const setSlotValue = (v) => {
+      if (v == null || v === '') { delete mtValues[e.id]; } else { mtValues[e.id] = v; }
+      slotShow(slot, v || null);
+      if (textInput) { textInput.value = v || ''; sizeInput(); }
+      refreshToggle();
+      updateMtPreview();
+    };
+    if (mode === 'use') {
+      slot.addEventListener('dragover', (ev) => { ev.preventDefault(); slot.classList.add('drag-over'); });
+      slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
+      slot.addEventListener('drop', (ev) => {
+        ev.preventDefault(); slot.classList.remove('drag-over');
+        const id = ev.dataTransfer.getData('text/plain');
+        if (id) setSlotValue(id);
+      });
+      slot.addEventListener('contextmenu', (ev) => { ev.preventDefault(); setSlotValue(''); });
+      if (mtValues[e.id] == null && e.def) mtValues[e.id] = e.def; // seed default text
+      slotShow(slot, mtValues[e.id]);
+    }
+    const box = el('div', { className: 'el-slot-box' });
+    const row = el('div', { className: 'el-slot-row' });
+    row.appendChild(slot);
+    if (mode === 'use') {
+      // Inline auto-growing text box holding the slot's value. The "default value" hint is a
+      // placeholder only — it disappears as soon as the user types or drops an item.
+      textInput = el('input', { type: 'text', className: 'el-slot-text', placeholder: 'default value', value: mtValues[e.id] != null ? mtValues[e.id] : '' });
+      sizeInput();
+      textInput.addEventListener('input', () => {
+        const v = textInput.value;
+        if (v === '') { delete mtValues[e.id]; } else { mtValues[e.id] = v; }
+        slotShow(slot, v || null);
+        sizeInput(); refreshToggle(); updateMtPreview();
+      });
+      row.appendChild(textInput);
+    }
+    box.appendChild(row);
+    if (e.label) box.appendChild(el('div', { className: 'el-caption', textContent: e.label }));
+    if (mode !== 'use' && e.def) box.appendChild(el('div', { className: 'el-caption', textContent: 'default: ' + e.def }));
+    if (mode === 'use') {
+      toggleBtn = el('button', { className: 'secondary el-tagtoggle', type: 'button' });
+      toggleBtn.addEventListener('click', () => {
+        const v = mtValues[e.id];
+        if (v && String(v).startsWith('#')) {
+          setSlotValue('');
+        } else {
+          openTagPicker((tagId) => setSlotValue('#' + tagId));
+        }
+      });
+      refreshToggle();
+      box.appendChild(toggleBtn);
+    }
+    wrap.appendChild(box);
+  } else if (e.kind === 'label') {
+    wrap.appendChild(el('div', { className: 'el-label-text el-label-' + (e.size || 'medium'), textContent: e.label }));
+  } else if (e.kind === 'arrow') {
+    const glyph = { right: '→', left: '←', up: '↑', down: '↓' }[e.direction] || '→';
+    wrap.appendChild(el('div', { className: 'el-arrow', textContent: glyph }));
+  } else if (e.kind === 'input') {
+    const box = el('div', { className: 'el-input-wrap el-in-' + (e.inputType || 'text') });
+    if (e.label) box.appendChild(el('span', { textContent: e.label }));
+    let input;
+    if (e.inputType === 'enum') {
+      input = el('select');
+      for (const o of (e.options || [])) {
+        const opt = el('option', { value: o, textContent: o });
+        if (o === e.def) opt.selected = true;
+        input.appendChild(opt);
+      }
+      if (mode === 'use') mtValues[e.id] = e.def || (e.options && e.options[0]) || '';
+    } else if (e.inputType === 'slider') {
+      input = el('input', { type: 'range', min: e.min || 0, max: e.max || 100, step: e.step || 1, value: e.def || 0 });
+      if (mode === 'use') mtValues[e.id] = e.def || '0';
+    } else if (e.inputType === 'integer' || e.inputType === 'float') {
+      input = el('input', { type: 'number', value: e.def || '' });
+      if (e.inputType === 'float') input.step = 'any';
+      if (mode === 'use') mtValues[e.id] = e.def || '';
+    } else {
+      input = el('input', { type: 'text', placeholder: e.placeholder || '', value: mode === 'use' ? '' : '' });
+      if (mode === 'use') mtValues[e.id] = '';
+    }
+    if (mode === 'use') {
+      input.addEventListener('input', () => { mtValues[e.id] = input.value; updateMtPreview(); });
+      input.addEventListener('change', () => { mtValues[e.id] = input.value; updateMtPreview(); });
+    } else {
+      input.disabled = true;
+    }
+    box.appendChild(input);
+    wrap.appendChild(box);
+  } else if (e.kind === 'fluidslot') {
+    wrap.appendChild(renderFluidSlot(e, mode));
+  } else if (e.kind === 'list') {
+    wrap.appendChild(renderListSlot(e, mode));
+  } else if (e.kind === 'fluidid') {
+    wrap.appendChild(renderFluidId(e, mode));
+  } else if (e.kind === 'tagpick') {
+    wrap.appendChild(renderTagPick(e, mode));
+  }
+  return wrap;
+}
+
+// Per-type tag cache shared by tag picker elements.
+const TAGS_BY_TYPE = {};
+function ensureTagsByType(type) {
+  type = type || 'item';
+  if (TAGS_BY_TYPE[type]) return Promise.resolve(TAGS_BY_TYPE[type]);
+  return fetch('/tags?type=' + type).then((r) => r.json())
+    .then((d) => { TAGS_BY_TYPE[type] = d.tags || []; return TAGS_BY_TYPE[type]; })
+    .catch(() => { TAGS_BY_TYPE[type] = []; return TAGS_BY_TYPE[type]; });
+}
+
+// Tag element: a searchable, scrollable tag list (like the Tags tab). Selecting a tag
+// sets the value to its #-prefixed id (e.g. #forge:ingots/iron).
+function renderTagPick(e, mode) {
+  const box = el('div', { className: 'el-tagpick' });
+  const tagType = e.tagType || 'item';
+  box.appendChild(el('div', { className: 'el-tagpick-head', textContent: (e.label || 'Tag') + ' (' + tagType + ')' }));
+
+  if (mode !== 'use') {
+    box.appendChild(el('div', { className: 'fl-edit-amt', textContent: '{{' + (e.id || 'tag') + '}}' }));
+    return box;
+  }
+
+  const selLabel = el('div', { className: 'el-tagpick-sel', textContent: mtValues[e.id] ? 'Selected: ' + mtValues[e.id] : 'No tag selected' });
+  box.appendChild(selLabel);
+  const search = el('input', { type: 'text', placeholder: 'Search ' + tagType + ' tags…' });
+  box.appendChild(search);
+  const list = el('div', { className: 'el-tagpick-list' });
+  box.appendChild(list);
+
+  let allTags = [];
+  const render = () => {
+    const q = search.value.trim().toLowerCase();
+    list.innerHTML = '';
+    const shown = allTags.filter((t) => !q || t.id.toLowerCase().includes(q)).slice(0, 300);
+    for (const t of shown) {
+      const row = el('div', { className: 'tag-row' + ('#' + t.id === mtValues[e.id] ? ' sel' : '') });
+      row.append(el('span', { textContent: t.id }), el('span', { className: 'cnt', textContent: String(t.memberCount) }));
+      row.addEventListener('click', () => {
+        mtValues[e.id] = '#' + t.id;
+        selLabel.textContent = 'Selected: ' + mtValues[e.id];
+        render(); updateMtPreview();
+      });
+      list.appendChild(row);
+    }
+    if (!shown.length) list.appendChild(el('div', { className: 'mod-note', textContent: 'No tags found.' }));
+  };
+  search.addEventListener('input', render);
+  list.appendChild(el('div', { className: 'mod-note', textContent: 'Loading…' }));
+  ensureTagsByType(tagType).then((tags) => { allTags = tags; render(); });
+  return box;
+}
+
+// Fluid ID element: a searchable fluid picker that resolves to just the raw fluid id
+// string (e.g. create:chocolate) — no Fluid.of(...) wrapper, no amount.
+function renderFluidId(e, mode) {
+  const box = el('div', { className: 'el-fluidid' });
+  box.appendChild(el('div', { className: 'el-fluidid-head', textContent: e.label || 'Fluid ID' }));
+  if (mode !== 'use') {
+    box.appendChild(el('div', { className: 'fl-edit-amt', textContent: '{{' + (e.id || 'fluidid') + '}}' }));
+    return box;
+  }
+  if (mtValues[e.id] == null) mtValues[e.id] = '';
+  const search = el('input', { type: 'text', placeholder: 'Search fluids…', value: mtValues[e.id] });
+  search.setAttribute('list', 'dl-fluids');
+  search.addEventListener('input', () => { mtValues[e.id] = search.value.trim(); updateMtPreview(); });
+  box.appendChild(search);
+  return box;
+}
+
+// List/array element: collect item ids by dropping; each member is formatted as
+// prefix + id + suffix and joined by the delimiter (no trailing delimiter).
+function renderListSlot(e, mode) {
+  const box = el('div', { className: 'el-list' + (mode === 'edit' ? ' edit' : '') });
+  box.appendChild(el('div', { className: 'el-list-head', textContent: e.label || 'List' }));
+
+  if (mode !== 'use') {
+    const pre = e.prefix != null ? e.prefix : "'";
+    const suf = e.suffix != null ? e.suffix : "'";
+    const del = e.delimiter != null ? e.delimiter : ',';
+    box.appendChild(el('div', { className: 'fl-edit-amt', textContent: '{{' + (e.id || 'list') + '}}  ·  ' + pre + 'id' + suf + del + '…' }));
+    return box;
+  }
+
+  const state = mtValues[e.id] || {
+    items: [],
+    prefix: e.prefix != null ? e.prefix : "'",
+    suffix: e.suffix != null ? e.suffix : "'",
+    delim: e.delimiter != null ? e.delimiter : ',',
+  };
+  mtValues[e.id] = state;
+
+  const drop = el('div', { className: 'el-list-drop', textContent: 'Drop items here' });
+  drop.addEventListener('dragover', (ev) => { ev.preventDefault(); drop.classList.add('drag-over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+  drop.addEventListener('drop', (ev) => {
+    ev.preventDefault(); drop.classList.remove('drag-over');
+    const id = ev.dataTransfer.getData('text/plain');
+    if (id && !state.items.includes(id)) { state.items.push(id); renderItems(); updateMtPreview(); }
+  });
+  box.appendChild(drop);
+
+  const listWrap = el('div', { className: 'el-list-items' });
+  box.appendChild(listWrap);
+  function renderItems() {
+    listWrap.innerHTML = '';
+    state.items.forEach((id, i) => {
+      const row = el('div', { className: 'el-list-row' });
+      const x = el('button', { className: 'secondary', type: 'button', textContent: '✕' });
+      x.addEventListener('click', () => { state.items.splice(i, 1); renderItems(); updateMtPreview(); });
+      row.append(el('span', { textContent: id }), x);
+      listWrap.appendChild(row);
+    });
+  }
+  renderItems();
+
+  const fmt = el('div', { className: 'el-list-fmt' });
+  const mk = (labelText, key) => {
+    const w = el('label', { className: 'field', textContent: labelText });
+    const inp = el('input', { type: 'text', value: state[key] });
+    inp.addEventListener('input', () => { state[key] = inp.value; updateMtPreview(); });
+    w.appendChild(inp);
+    return w;
+  };
+  fmt.append(mk('Prefix', 'prefix'), mk('Suffix', 'suffix'), mk('Delimiter', 'delim'));
+  box.appendChild(fmt);
+  return box;
+}
+
+// Fluid slot: blue droplet box. In 'use' mode it is an interactive picker (specific fluid
+// or fluid tag, searchable, with an mb amount + presets); in 'edit' mode a static preview.
+function renderFluidSlot(e, mode) {
+  const box = el('div', { className: 'el-fluid' + (mode === 'edit' ? ' edit' : '') });
+  box.appendChild(el('div', { className: 'fl-head', textContent: e.label || 'Fluid' }));
+
+  if (mode !== 'use') {
+    box.appendChild(el('div', { className: 'fl-edit-amt', textContent: '{{' + (e.id || 'fluid') + '}}  ·  ' + (e.amount || '1000') + ' mb' }));
+    return box;
+  }
+
+  const state = mtValues[e.id] || { id: '', amount: e.amount || '1000', isTag: false };
+  mtValues[e.id] = state;
+
+  const toggle = el('div', { className: 'fl-toggle' });
+  const rName = 'fl-mode-' + (e.id || Math.random().toString(36).slice(2));
+  const specLab = el('label', { className: 'inline' });
+  const specR = el('input', { type: 'radio', name: rName, checked: !state.isTag });
+  specLab.append(specR, document.createTextNode(' Specific fluid'));
+  const tagLab = el('label', { className: 'inline' });
+  const tagR = el('input', { type: 'radio', name: rName, checked: state.isTag });
+  tagLab.append(tagR, document.createTextNode(' Fluid tag'));
+  toggle.append(specLab, tagLab);
+  box.appendChild(toggle);
+
+  const search = el('input', { type: 'text', placeholder: 'Search fluids…', value: state.id });
+  search.setAttribute('list', state.isTag ? 'dl-fluid-tags' : 'dl-fluids');
+  search.addEventListener('input', () => { state.id = search.value.trim(); updateMtPreview(); });
+  box.appendChild(search);
+
+  const applyMode = (isTag) => {
+    state.isTag = isTag;
+    search.setAttribute('list', isTag ? 'dl-fluid-tags' : 'dl-fluids');
+    search.placeholder = isTag ? 'Search fluid tags…' : 'Search fluids…';
+    if (isTag) ensureFluidTags();
+    updateMtPreview();
+  };
+  specR.addEventListener('change', () => applyMode(false));
+  tagR.addEventListener('change', () => { applyMode(true); });
+  if (state.isTag) ensureFluidTags();
+
+  const amtRow = el('div', { className: 'fl-amt' });
+  const amt = el('input', { type: 'number', min: '1', value: state.amount });
+  amt.addEventListener('input', () => { state.amount = amt.value; updateMtPreview(); });
+  amtRow.append(el('span', { textContent: 'Amount' }), amt, el('span', { textContent: 'mb' }));
+  box.appendChild(amtRow);
+
+  const presets = el('div', { className: 'fl-presets' });
+  [['250mb', '250'], ['500mb', '500'], ['1000mb', '1000'], ['1B', '1000']].forEach(([label, v]) => {
+    const b = el('button', { className: 'secondary', type: 'button', textContent: label });
+    b.addEventListener('click', () => { state.amount = v; amt.value = v; updateMtPreview(); });
+    presets.appendChild(b);
+  });
+  box.appendChild(presets);
+  return box;
+}
+
+function buildValueMap(template, rawValues) {
+  const values = {};
+  for (const e of template.elements) {
+    if (!e.id) continue;
+    if (e.kind === 'fluidslot') {
+      const st = rawValues[e.id] || {};
+      const fid = (st.id || '').trim();
+      const amt = parseInt(st.amount, 10) || parseInt(e.amount, 10) || 1000;
+      values[e.id] = fid ? "Fluid.of('" + (st.isTag ? '#' : '') + fid + "', " + amt + ')' : '';
+      continue;
+    }
+    if (e.kind === 'list') {
+      const st = rawValues[e.id] || {};
+      const items = st.items || [];
+      const pre = st.prefix != null ? st.prefix : (e.prefix != null ? e.prefix : "'");
+      const suf = st.suffix != null ? st.suffix : (e.suffix != null ? e.suffix : "'");
+      const del = st.delim != null ? st.delim : (e.delimiter != null ? e.delimiter : ',');
+      values[e.id] = items.map((id) => pre + id + suf).join(del);
+      continue;
+    }
+    let v = rawValues[e.id] != null ? rawValues[e.id] : '';
+    // Item slots set to a tag (#...) become an explicit Ingredient.of('#tag') expression.
+    if (e.kind === 'slot' && typeof v === 'string' && v.startsWith('#')) {
+      v = "Ingredient.of('" + v + "')";
+    }
+    values[e.id] = v;
+    if (e.inputType === 'enum') {
+      for (const o of (e.options || [])) values[e.id + '_' + o] = (o === v) ? 'true' : '';
+    }
+  }
+  return values;
+}
+
+function updateMtPreview() {
+  if (!mtTemplate) return;
+  document.getElementById('mt-preview').textContent =
+    applyTemplate(mtTemplate.script, buildValueMap(mtTemplate, mtValues));
+}
+
+document.getElementById('mt-generate').addEventListener('click', () => {
+  if (!mtTemplate) { setResult('mt-result', '✖ Load a template first', 'err'); return; }
+  const scriptId = document.getElementById('mt-scriptid').value.trim();
+  postScript({ scriptId, templateContent: serializeTemplate(mtTemplate), values: buildValueMap(mtTemplate, mtValues) }, 'mt-result');
+});
+
+/* ====================================================================== */
+/* TEMPLATE BUILDER TAB                                                     */
+/* ====================================================================== */
+let builderElements = [];
+let selectedEl = null;
+let builderEditingNode = null; // node being edited (for overwrite)
+let snapEnabled = false;
+let snapSize = 20;
+
+// Snaps a coordinate to the grid increment when snapping is on.
+function snap(v) {
+  return snapEnabled ? Math.round(v / snapSize) * snapSize : Math.round(v);
+}
+
+const ELEMENT_PALETTE = [
+  { label: 'Item Slot', make: () => ({ kind: 'slot', id: 'slot1', label: 'Slot', required: true }) },
+  { label: 'Fluid Slot', make: () => ({ kind: 'fluidslot', id: 'fluid1', label: 'Fluid', amount: '1000', min: '', max: '' }) },
+  { label: 'List / Array', make: () => ({ kind: 'list', id: 'list1', label: 'List', prefix: "'", suffix: "'", delimiter: ',' }) },
+  { label: 'Fluid ID', make: () => ({ kind: 'fluidid', id: 'fluidid1', label: 'Fluid ID' }) },
+  { label: 'Tag', make: () => ({ kind: 'tagpick', id: 'tag1', label: 'Tag', tagType: 'item' }) },
+  { label: 'Label', make: () => ({ kind: 'label', label: 'Label', size: 'medium' }) },
+  { label: '→ Arrow Right', make: () => ({ kind: 'arrow', direction: 'right' }) },
+  { label: '← Arrow Left', make: () => ({ kind: 'arrow', direction: 'left' }) },
+  { label: '↑ Arrow Up', make: () => ({ kind: 'arrow', direction: 'up' }) },
+  { label: '↓ Arrow Down', make: () => ({ kind: 'arrow', direction: 'down' }) },
+  { label: 'Text Input', make: () => ({ kind: 'input', inputType: 'text', id: 'text1', label: 'Text', placeholder: '' }) },
+  { label: 'Integer Box', make: () => ({ kind: 'input', inputType: 'integer', id: 'int1', label: 'Integer', def: '0', min: '0', max: '100' }) },
+  { label: 'Integer Slider', make: () => ({ kind: 'input', inputType: 'slider', id: 'slider1', label: 'Slider', def: '1', min: '1', max: '64', step: '1' }) },
+  { label: 'Float Box', make: () => ({ kind: 'input', inputType: 'float', id: 'float1', label: 'Float', def: '0.0', min: '0.0', max: '10.0' }) },
+  { label: 'Enum / Dropdown', make: () => ({ kind: 'input', inputType: 'enum', id: 'enum1', label: 'Enum', def: 'a', options: ['a', 'b'] }) },
+];
+
+function initElementPalette() {
+  const pal = document.getElementById('el-palette');
+  ELEMENT_PALETTE.forEach((item, i) => {
+    const d = el('div', { className: 'el-palette-item', draggable: true, textContent: item.label });
+    d.addEventListener('dragstart', (e) => e.dataTransfer.setData('application/x-tpl-element', String(i)));
+    pal.appendChild(d);
+  });
+}
+
+const builderCanvas = document.getElementById('builder-canvas');
+builderCanvas.addEventListener('dragover', (e) => {
+  if (e.dataTransfer.types.includes('application/x-tpl-element')) e.preventDefault();
+});
+builderCanvas.addEventListener('drop', (e) => {
+  const idx = e.dataTransfer.getData('application/x-tpl-element');
+  if (idx === '') return;
+  e.preventDefault();
+  const rect = builderCanvas.getBoundingClientRect();
+  const newEl = ELEMENT_PALETTE[parseInt(idx, 10)].make();
+  newEl.x = Math.max(0, snap(e.clientX - rect.left + builderCanvas.scrollLeft - 20));
+  newEl.y = Math.max(0, snap(e.clientY - rect.top + builderCanvas.scrollTop - 20));
+  if (newEl.id) newEl.id = uniqueId(newEl.id);
+  builderElements.push(newEl);
+  renderBuilderCanvas();
+  selectElement(newEl);
+  updateBuilderPreview();
+  refreshInsertButtons();
+});
+
+function uniqueId(base) {
+  const ids = new Set(builderElements.map((e) => e.id).filter(Boolean));
+  if (!ids.has(base)) return base;
+  let i = 2;
+  while (ids.has(base.replace(/\d+$/, '') + i)) i++;
+  return base.replace(/\d+$/, '') + i;
+}
+
+function renderBuilderCanvas() {
+  builderCanvas.innerHTML = '';
+  for (const e of builderElements) {
+    const node = renderCanvasElement(e, 'edit');
+    if (e === selectedEl) node.classList.add('selected');
+    node.addEventListener('mousedown', (ev) => startDrag(ev, e, node));
+    builderCanvas.appendChild(node);
+  }
+}
+
+function startDrag(ev, element, node) {
+  if (ev.button !== 0) return;
+  ev.stopPropagation();
+  selectElement(element);
+  const rect = builderCanvas.getBoundingClientRect();
+  const offsetX = ev.clientX - rect.left - element.x + builderCanvas.scrollLeft;
+  const offsetY = ev.clientY - rect.top - element.y + builderCanvas.scrollTop;
+  let moved = false;
+  function onMove(e) {
+    moved = true;
+    element.x = Math.max(0, snap(e.clientX - rect.left - offsetX + builderCanvas.scrollLeft));
+    element.y = Math.max(0, snap(e.clientY - rect.top - offsetY + builderCanvas.scrollTop));
+    node.style.left = element.x + 'px';
+    node.style.top = element.y + 'px';
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    if (moved) refreshPropsPositions();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+builderCanvas.addEventListener('mousedown', (e) => { if (e.target === builderCanvas) selectElement(null); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Delete' && selectedEl && document.getElementById('tab-builder').classList.contains('active')) {
+    const tag = document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    builderElements = builderElements.filter((x) => x !== selectedEl);
+    selectedEl = null;
+    renderBuilderCanvas(); renderProps(); updateBuilderPreview(); refreshInsertButtons();
+  }
+});
+
+function selectElement(element) {
+  selectedEl = element;
+  // Toggle highlight on the existing nodes instead of rebuilding the canvas, so a node
+  // grabbed for dragging stays attached to the DOM and follows the cursor live.
+  for (const node of builderCanvas.children) {
+    node.classList.toggle('selected', node._element === element);
+  }
+  renderProps();
+}
+
+/* ---- properties panel ---- */
+function renderProps() {
+  const empty = document.getElementById('props-empty');
+  const fields = document.getElementById('props-fields');
+  fields.innerHTML = '';
+  if (!selectedEl) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  const e = selectedEl;
+
+  const addText = (labelText, key, opts) => {
+    const lab = el('label', { className: 'field', textContent: labelText });
+    const inp = el('input', { type: (opts && opts.number) ? 'number' : 'text', value: e[key] != null ? e[key] : '' });
+    inp.addEventListener('input', () => { e[key] = inp.value; afterPropChange(); });
+    lab.appendChild(inp); fields.appendChild(lab);
+  };
+  const addSelect = (labelText, key, options) => {
+    const lab = el('label', { className: 'field', textContent: labelText });
+    const sel = el('select');
+    for (const o of options) { const opt = el('option', { value: o, textContent: o }); if (e[key] === o) opt.selected = true; sel.appendChild(opt); }
+    sel.addEventListener('change', () => { e[key] = sel.value; afterPropChange(); });
+    lab.appendChild(sel); fields.appendChild(lab);
+  };
+
+  if (e.kind === 'slot') {
+    addText('ID (variable)', 'id'); addText('Label', 'label'); addText('Default text', 'def');
+    const lab = el('label', { className: 'inline' });
+    const cb = el('input', { type: 'checkbox', checked: e.required !== false });
+    cb.addEventListener('change', () => { e.required = cb.checked; });
+    lab.append(cb, document.createTextNode(' Required')); fields.appendChild(lab);
+  } else if (e.kind === 'fluidslot') {
+    addText('ID (variable)', 'id'); addText('Label', 'label');
+    addText('Default amount (mb)', 'amount', { number: true });
+    addText('Min amount', 'min', { number: true }); addText('Max amount', 'max', { number: true });
+  } else if (e.kind === 'list') {
+    addText('ID (variable)', 'id'); addText('Label', 'label');
+    addText('Prefix', 'prefix'); addText('Suffix', 'suffix'); addText('Delimiter', 'delimiter');
+  } else if (e.kind === 'fluidid') {
+    addText('ID (variable)', 'id'); addText('Label', 'label');
+  } else if (e.kind === 'tagpick') {
+    addText('ID (variable)', 'id'); addText('Label', 'label');
+    addSelect('Tag type', 'tagType', ['item', 'block', 'fluid', 'entity']);
+  } else if (e.kind === 'label') {
+    addText('Text', 'label'); addSelect('Font size', 'size', ['small', 'medium', 'large']);
+  } else if (e.kind === 'arrow') {
+    addSelect('Direction', 'direction', ['right', 'left', 'up', 'down']);
+  } else if (e.kind === 'input') {
+    addText('ID (variable)', 'id'); addText('Label', 'label');
+    if (e.inputType === 'text') { addText('Placeholder', 'placeholder'); }
+    else if (e.inputType === 'enum') {
+      const lab = el('label', { className: 'field', textContent: 'Options (comma-separated)' });
+      const inp = el('input', { type: 'text', value: (e.options || []).join(',') });
+      inp.addEventListener('input', () => { e.options = inp.value.split(',').map((s) => s.trim()).filter(Boolean); afterPropChange(); });
+      lab.appendChild(inp); fields.appendChild(lab);
+      addText('Default', 'def');
+    } else {
+      addText('Default', 'def', { number: true }); addText('Min', 'min', { number: true }); addText('Max', 'max', { number: true });
+      if (e.inputType === 'slider') addText('Step', 'step', { number: true });
+    }
+  }
+}
+
+function afterPropChange() {
+  renderBuilderCanvas();
+  if (selectedEl) {
+    const node = [...builderCanvas.children].find((n) => n._element === selectedEl);
+    if (node) node.classList.add('selected');
+  }
+  updateBuilderPreview();
+  refreshInsertButtons();
+}
+function refreshPropsPositions() { /* positions tracked live; nothing extra needed */ }
+
+/* ---- script editor + insert vars + preview ---- */
+const scriptEditorTA = document.getElementById('script-editor');
+scriptEditorTA.value = "ServerEvents.recipes(event => {\n  // reference each element by its id, e.g. event.shaped(...)\n})\n";
+const builderEditor = createCodeEditor(scriptEditorTA, updateBuilderPreview);
+
+function refreshInsertButtons() {
+  const c = document.getElementById('insert-btns');
+  c.innerHTML = '';
+  for (const e of builderElements) {
+    if (!e.id) continue;
+    const b = el('button', { className: 'secondary', textContent: '{{' + e.id + '}}' });
+    b.addEventListener('click', () => insertAtCursor('{{' + e.id + '}}'));
+    c.appendChild(b);
+  }
+}
+function insertAtCursor(text) {
+  builderEditor.replaceSelection(text);
+  updateBuilderPreview();
+}
+
+function dummyValue(e) {
+  if (e.kind === 'slot') return 'minecraft:example_item';
+  if (e.kind === 'fluidslot') return "Fluid.of('minecraft:water', " + (parseInt(e.amount, 10) || 1000) + ')';
+  if (e.kind === 'fluidid') return 'minecraft:water';
+  if (e.kind === 'tagpick') return '#minecraft:planks';
+  if (e.kind === 'list') {
+    const p = e.prefix != null ? e.prefix : "'"; const s = e.suffix != null ? e.suffix : "'";
+    const d = e.delimiter != null ? e.delimiter : ',';
+    return p + 'minecraft:coal' + s + d + p + 'minecraft:iron_ingot' + s;
+  }
+  if (e.inputType === 'enum') return (e.options && e.options[0]) || 'option';
+  if (e.inputType === 'text') return 'example_text';
+  if (e.def != null && e.def !== '') return e.def;
+  return '0';
+}
+function updateBuilderPreview() {
+  let preview = builderEditor.getValue();
+  const values = {};
+  for (const e of builderElements) {
+    if (!e.id) continue;
+    const dv = dummyValue(e);
+    values[e.id] = dv;
+    if (e.inputType === 'enum') for (const o of (e.options || [])) values[e.id + '_' + o] = (o === dv) ? 'true' : '';
+  }
+  document.getElementById('builder-preview').textContent = applyTemplate(preview, values);
+}
+
+/* ---- validation ---- */
+function validateBuilder() {
+  const errors = [];
+  const name = document.getElementById('tpl-name').value.trim();
+  if (!name) errors.push('Template name is empty.');
+
+  const idEls = builderElements.filter((e) => e.kind === 'slot' || e.kind === 'input' || e.kind === 'fluidslot' || e.kind === 'list' || e.kind === 'fluidid' || e.kind === 'tagpick');
+  if (idEls.length === 0) errors.push('Add at least one slot or input element.');
+
+  // Ignore {{...}} that appear inside // line comments or /* block comments */ — example
+  // placeholders written in comments shouldn't be validated as real element references.
+  const script = builderEditor.getValue();
+  const scanText = script.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const refs = []; let m;
+  const re = /\{\{[#\/]?([a-z0-9_]+)\}\}/g;
+  while ((m = re.exec(scanText)) !== null) refs.push(m[1]);
+  if (refs.length === 0) errors.push('Use at least one {{variable}} in the script.');
+
+  const ids = idEls.map((e) => e.id);
+  const validRefs = new Set(ids);
+  for (const e of builderElements) if (e.inputType === 'enum') for (const o of (e.options || [])) validRefs.add(e.id + '_' + o);
+  for (const r of new Set(refs)) if (!validRefs.has(r)) errors.push('Script references {{' + r + '}} but no element has that ID.');
+
+  const seen = new Set();
+  for (const id of ids) { if (seen.has(id)) errors.push('Duplicate element ID: ' + id); seen.add(id); }
+  for (const id of ids) if (!/^[a-z0-9_]+$/.test(id || '')) errors.push('Invalid ID "' + id + '" (use lowercase letters, numbers, underscore).');
+
+  for (const e of builderElements) {
+    if (e.kind === 'slot' && e.required !== false) {
+      if (!e.id) errors.push('A required slot is missing an ID.');
+      if (!e.label) errors.push('Required slot "' + (e.id || '?') + '" needs a label.');
+    }
+    if (e.inputType === 'enum' && (!e.options || e.options.length === 0)) errors.push('Enum "' + e.id + '" has no options.');
+    if (['integer', 'float', 'slider'].includes(e.inputType)) {
+      const d = parseFloat(e.def), mn = parseFloat(e.min), mx = parseFloat(e.max);
+      if (!isNaN(mn) && !isNaN(d) && d < mn) errors.push(e.id + ': default < min.');
+      if (!isNaN(mx) && !isNaN(d) && d > mx) errors.push(e.id + ': default > max.');
+    }
+  }
+  return errors;
+}
+function showErrors(errors) {
+  const c = document.getElementById('validation-errors');
+  c.innerHTML = '';
+  if (errors.length === 0) { c.innerHTML = '<span class="ok">✔ No problems found.</span>'; return true; }
+  const ul = el('ul');
+  for (const e of errors) ul.appendChild(el('li', { textContent: e }));
+  c.append(document.createTextNode('Fix these before saving:'), ul);
+  return false;
+}
+document.getElementById('btn-validate').addEventListener('click', () => showErrors(validateBuilder()));
+document.getElementById('btn-clear-canvas').addEventListener('click', () => {
+  if (builderElements.length && !confirm('Clear all elements from the canvas?')) return;
+  builderElements = [];
+  selectedEl = null;
+  builderEditingNode = null; // starting fresh — next save is a new template
+  renderBuilderCanvas();
+  renderProps();
+  refreshInsertButtons();
+  updateBuilderPreview();
+});
+
+/* ---- save ---- */
+function currentBuilderTemplate() {
+  const meta = {
+    name: document.getElementById('tpl-name').value.trim(),
+    author: document.getElementById('tpl-author').value.trim() || 'unknown',
+    version: '1.0.0',
+    type: document.getElementById('tpl-type').value,
+  };
+  // strip transient props
+  const elements = builderElements.map((e) => { const c = { ...e }; delete c._optionsStr; return c; });
+  return { meta, elements, script: builderEditor.getValue() };
+}
+
+function saveRaw(relPath, location, content, overwrite) {
+  const url = '/templates/save?location=' + location + '&path=' + encodeURIComponent(relPath) + (overwrite ? '&overwrite=true' : '');
+  return fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: content })
+    .then((r) => r.json().then((d) => ({ status: r.status, d })))
+    .then(({ status, d }) => {
+      if (d.success) { showToast('Saved: ' + d.path); loadTemplateTree('mt-tree', onPickTemplate); return true; }
+      if (status === 409) {
+        if (confirm(relPath.split('/').pop() + ' already exists. Overwrite?')) return saveRaw(relPath, location, content, true);
+        return false;
+      }
+      showToast('Save failed: ' + d.error); return false;
+    });
+}
+
+function doSave(location) {
+  const errors = validateBuilder();
+  if (!showErrors(errors)) return;
+  const tpl = currentBuilderTemplate();
+
+  // Editing an existing template → overwrite it in place, no folder prompt.
+  if (builderEditingNode) {
+    const info = templateRelLocation(builderEditingNode.path);
+    if (info) { saveRaw(info.rel, info.location, serializeTemplate(tpl), true); return; }
+  }
+
+  // New template → ask where to put it.
+  const folder = prompt('Folder to save into (blank = root, use / for subfolders):', 'My Templates');
+  if (folder === null) return;
+  const filename = tpl.meta.name.replace(/\s+/g, '_') + '.kubeguitemplate';
+  const relPath = (folder.trim() ? folder.trim().replace(/^\/+|\/+$/g, '') + '/' : '') + filename;
+  saveRaw(relPath, location, serializeTemplate(tpl), false);
+}
+document.getElementById('btn-save-instance').addEventListener('click', () => doSave('instance'));
+document.getElementById('btn-save-universal').addEventListener('click', () => doSave('universal'));
+
+/* ---- load existing into builder ---- */
+function editTemplate(node) {
+  fetch('/templates/file?path=' + encodeURIComponent(node.path)).then((r) => r.text()).then((text) => {
+    const tpl = parseTemplate(text);
+    builderElements = tpl.elements.map((e) => ({ ...e }));
+    selectedEl = null;
+    document.getElementById('tpl-name').value = tpl.meta.name || '';
+    document.getElementById('tpl-author').value = tpl.meta.author || '';
+    const tplType = tpl.meta.type || 'server';
+    document.getElementById('tpl-type').value = ['server', 'client', 'startup', 'template'].includes(tplType) ? tplType : 'server';
+    builderEditor.setValue(tpl.script);
+    builderEditingNode = node;
+    switchToBuilder();
+    renderBuilderCanvas(); renderProps(); refreshInsertButtons(); updateBuilderPreview();
+    showToast('Loaded ' + node.filename + ' for editing');
+  });
+}
+function switchToBuilder() {
+  document.querySelector('nav button[data-tab="builder"]').click();
+}
+document.getElementById('btn-load-existing').addEventListener('click', () => {
+  // Quick picker: load the tree into a temporary prompt-based chooser via My Templates.
+  document.querySelector('nav button[data-tab="mytemplates"]').click();
+  showToast('Right-click a template → Edit to load it into the builder.');
+});
+
+/* ====================================================================== */
+/* ITEM BUILDER TAB                                                         */
+/* ====================================================================== */
+const TOOL_TYPES = ['sword', 'pickaxe', 'axe', 'shovel', 'hoe'];
+const ARMOR_TYPES = ['helmet', 'chestplate', 'leggings', 'boots'];
+const ALL_ITEM_TYPES = ['basic', 'sword', 'pickaxe', 'axe', 'shovel', 'shears', 'hoe',
+  'helmet', 'chestplate', 'leggings', 'boots'];
+const TOOL_TIERS = ['wood', 'stone', 'iron', 'gold', 'diamond', 'netherite'];
+const ARMOR_TIERS = ['leather', 'chainmail', 'iron', 'gold', 'diamond', 'turtle', 'netherite'];
+
+const ITEM_METHODS = [
+  { key: 'texture', label: 'texture', fields: [{ name: 'value', type: 'text', placeholder: 'mobbo:item/lava', def: '' }], gen: (v) => `.texture('${v.value}')` },
+  { key: 'maxStackSize', label: 'maxStackSize', fields: [{ name: 'size', type: 'number', def: '64' }], gen: (v) => `.maxStackSize(${v.size})` },
+  { key: 'unstackable', label: 'unstackable', fields: [], gen: () => `.unstackable()` },
+  { key: 'maxDamage', label: 'maxDamage', fields: [{ name: 'damage', type: 'number', def: '100' }], gen: (v) => `.maxDamage(${v.damage})` },
+  { key: 'burnTime', label: 'burnTime', fields: [{ name: 'ticks', type: 'number', def: '200' }], gen: (v) => `.burnTime(${v.ticks})` },
+  { key: 'fireResistant', label: 'fireResistant', fields: [], gen: () => `.fireResistant(true)` },
+  { key: 'rarity', label: 'rarity', fields: [{ name: 'rarity', type: 'enum', options: ['common', 'uncommon', 'rare', 'epic'], def: 'common' }], gen: (v) => `.rarity('${v.rarity}')` },
+  { key: 'glow', label: 'glow', fields: [], gen: () => `.glow(true)` },
+  { key: 'tooltip', label: 'tooltip', fields: [], gen: () => '' }, // custom card + generator below
+  { key: 'displayName', label: 'displayName', fields: [{ name: 'name', type: 'text', placeholder: 'Cool Item', def: '' }], gen: (v) => `.displayName('${v.name}')` },
+];
+
+const itemMethodState = {};
+ITEM_METHODS.forEach((m) => {
+  const values = {};
+  m.fields.forEach((f) => { values[f.name] = f.def; });
+  itemMethodState[m.key] = { enabled: false, collapsed: false, values };
+});
+const itemTypeState = { enabled: false, collapsed: false, type: 'sword', toolTier: 'iron', armorTier: 'iron' };
+const itemIcon = { itemId: null, file: null, dataUrl: null };
+
+// Minecraft text colours -> KubeJS Text.<method>() + swatch colour
+const TEXT_COLORS = ['black', 'dark_blue', 'dark_green', 'dark_aqua', 'dark_red', 'dark_purple',
+  'gold', 'gray', 'dark_gray', 'blue', 'green', 'aqua', 'red', 'light_purple', 'yellow', 'white'];
+const COLOR_METHOD = {
+  black: 'black', dark_blue: 'darkBlue', dark_green: 'darkGreen', dark_aqua: 'darkAqua',
+  dark_red: 'darkRed', dark_purple: 'darkPurple', gold: 'gold', gray: 'gray', dark_gray: 'darkGray',
+  blue: 'blue', green: 'green', aqua: 'aqua', red: 'red', light_purple: 'lightPurple',
+  yellow: 'yellow', white: 'white',
+};
+const COLOR_HEX = {
+  black: '#000000', dark_blue: '#0000AA', dark_green: '#00AA00', dark_aqua: '#00AAAA',
+  dark_red: '#AA0000', dark_purple: '#AA00AA', gold: '#FFAA00', gray: '#AAAAAA', dark_gray: '#555555',
+  blue: '#5555FF', green: '#55FF55', aqua: '#55FFFF', red: '#FF5555', light_purple: '#FF55FF',
+  yellow: '#FFFF55', white: '#FFFFFF',
+};
+// Each line: { segments: [{color, text}], active: <color>, _pending: <in-progress text> }
+let itemTooltipLines = [{ segments: [], active: 'white', _pending: '' }];
+
+function renderItemMethods() {
+  const container = document.getElementById('item-methods');
+  container.innerHTML = '';
+  for (const m of ITEM_METHODS) {
+    container.appendChild(m.key === 'tooltip' ? buildTooltipCard(m) : buildMethodCard(m));
+  }
+  container.appendChild(buildTypeCard());
+}
+
+function buildMethodCard(m) {
+  const st = itemMethodState[m.key];
+  const card = el('div', { className: 'method-card' });
+  const head = el('div', { className: 'method-head' });
+  const lab = el('label', { className: 'inline grow' });
+  const cb = el('input', { type: 'checkbox' });
+  cb.checked = st.enabled;
+  lab.append(cb, document.createTextNode(' ' + m.label));
+  const collapse = el('button', { className: 'collapse-btn', textContent: '▾' });
+  head.append(lab, collapse);
+  const body = el('div', { className: 'method-body' });
+  for (const f of m.fields) body.appendChild(makeMethodField(f, st));
+  card.append(head, body);
+
+  const sync = () => {
+    body.style.display = (st.enabled && !st.collapsed && m.fields.length) ? 'flex' : 'none';
+    collapse.style.display = (st.enabled && m.fields.length) ? 'inline-block' : 'none';
+    collapse.textContent = st.collapsed ? '▸' : '▾';
+  };
+  cb.addEventListener('change', () => { st.enabled = cb.checked; if (!st.enabled) st.collapsed = false; sync(); updateItemPreview(); });
+  collapse.addEventListener('click', () => { st.collapsed = !st.collapsed; sync(); });
+  sync();
+  return card;
+}
+
+function makeMethodField(f, st) {
+  const lab = el('label', { className: 'field', textContent: f.name });
+  let input;
+  if (f.type === 'enum') {
+    input = el('select');
+    for (const o of f.options) {
+      const opt = el('option', { value: o, textContent: o });
+      if (o === st.values[f.name]) opt.selected = true;
+      input.appendChild(opt);
+    }
+    input.addEventListener('change', () => { st.values[f.name] = input.value; updateItemPreview(); });
+  } else {
+    input = el('input', { type: f.type === 'number' ? 'number' : 'text', value: st.values[f.name] || '' });
+    if (f.placeholder) input.placeholder = f.placeholder;
+    input.addEventListener('input', () => { st.values[f.name] = input.value; updateItemPreview(); });
+  }
+  lab.appendChild(input);
+  return lab;
+}
+
+function buildTypeCard() {
+  const st = itemTypeState;
+  const card = el('div', { className: 'method-card' });
+  const head = el('div', { className: 'method-head' });
+  const lab = el('label', { className: 'inline grow' });
+  const cb = el('input', { type: 'checkbox' });
+  cb.checked = st.enabled;
+  lab.append(cb, document.createTextNode(' item type'));
+  const collapse = el('button', { className: 'collapse-btn', textContent: '▾' });
+  head.append(lab, collapse);
+
+  const body = el('div', { className: 'method-body' });
+  const typeLab = el('label', { className: 'field', textContent: 'type' });
+  const typeSel = el('select');
+  for (const t of ALL_ITEM_TYPES) { const o = el('option', { value: t, textContent: t }); if (t === st.type) o.selected = true; typeSel.appendChild(o); }
+  typeLab.appendChild(typeSel);
+
+  const toolLab = el('label', { className: 'field', textContent: 'tool tier' });
+  const toolSel = el('select');
+  for (const t of TOOL_TIERS) { const o = el('option', { value: t, textContent: t }); if (t === st.toolTier) o.selected = true; toolSel.appendChild(o); }
+  toolLab.appendChild(toolSel);
+
+  const armorLab = el('label', { className: 'field', textContent: 'armor tier' });
+  const armorSel = el('select');
+  for (const t of ARMOR_TIERS) { const o = el('option', { value: t, textContent: t }); if (t === st.armorTier) o.selected = true; armorSel.appendChild(o); }
+  armorLab.appendChild(armorSel);
+
+  body.append(typeLab, toolLab, armorLab);
+  card.append(head, body);
+
+  const syncTiers = () => {
+    toolLab.style.display = TOOL_TYPES.includes(st.type) ? 'flex' : 'none';
+    armorLab.style.display = ARMOR_TYPES.includes(st.type) ? 'flex' : 'none';
+  };
+  const sync = () => {
+    body.style.display = (st.enabled && !st.collapsed) ? 'flex' : 'none';
+    collapse.style.display = st.enabled ? 'inline-block' : 'none';
+    collapse.textContent = st.collapsed ? '▸' : '▾';
+    syncTiers();
+  };
+  cb.addEventListener('change', () => { st.enabled = cb.checked; if (!st.enabled) st.collapsed = false; sync(); updateItemPreview(); });
+  collapse.addEventListener('click', () => { st.collapsed = !st.collapsed; sync(); });
+  typeSel.addEventListener('change', () => { st.type = typeSel.value; syncTiers(); updateItemPreview(); });
+  toolSel.addEventListener('change', () => { st.toolTier = toolSel.value; updateItemPreview(); });
+  armorSel.addEventListener('change', () => { st.armorTier = armorSel.value; updateItemPreview(); });
+  sync();
+  return card;
+}
+
+/* ---- tooltip card (multi-line, multi-colour) ---- */
+function buildTooltipCard(m) {
+  const st = itemMethodState[m.key];
+  const card = el('div', { className: 'method-card' });
+  const head = el('div', { className: 'method-head' });
+  const lab = el('label', { className: 'inline grow' });
+  const cb = el('input', { type: 'checkbox' });
+  cb.checked = st.enabled;
+  lab.append(cb, document.createTextNode(' ' + m.label));
+  const collapse = el('button', { className: 'collapse-btn', textContent: '▾' });
+  head.append(lab, collapse);
+
+  const body = el('div', { className: 'method-body' });
+  body.style.flexDirection = 'column';
+  body.style.alignItems = 'stretch';
+  const linesWrap = el('div', { className: 'tt-lines', id: 'tooltip-lines' });
+  const addBtn = el('button', { className: 'secondary', textContent: 'Add line' });
+  addBtn.style.alignSelf = 'flex-start';
+  addBtn.addEventListener('click', () => {
+    itemTooltipLines.push({ segments: [], active: 'white', _pending: '' });
+    renderTooltipLines();
+    updateItemPreview();
+  });
+  body.append(linesWrap, addBtn);
+  card.append(head, body);
+
+  const sync = () => {
+    body.style.display = (st.enabled && !st.collapsed) ? 'flex' : 'none';
+    collapse.style.display = st.enabled ? 'inline-block' : 'none';
+    collapse.textContent = st.collapsed ? '▸' : '▾';
+  };
+  cb.addEventListener('change', () => { st.enabled = cb.checked; if (!st.enabled) st.collapsed = false; sync(); updateItemPreview(); });
+  collapse.addEventListener('click', () => { st.collapsed = !st.collapsed; sync(); });
+  renderTooltipLines();
+  sync();
+  return card;
+}
+
+function renderTooltipLines() {
+  const wrap = document.getElementById('tooltip-lines');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const line of itemTooltipLines) wrap.appendChild(buildTooltipLineEditor(line));
+}
+
+function makeTooltipChip(line, seg) {
+  const chip = el('span', { className: 'tt-chip', textContent: seg.text || '(empty)' });
+  chip.style.color = COLOR_HEX[seg.color];
+  chip.title = 'Click to remove (' + seg.color + ')';
+  chip.addEventListener('click', () => {
+    const i = line.segments.indexOf(seg);
+    if (i >= 0) line.segments.splice(i, 1);
+    renderTooltipLines();
+    updateItemPreview();
+  });
+  return chip;
+}
+
+function buildTooltipLineEditor(line) {
+  line._pending = '';
+  const row = el('div', { className: 'tt-line' });
+  const segWrap = el('div', { className: 'tt-segments' });
+  for (const seg of line.segments) segWrap.appendChild(makeTooltipChip(line, seg));
+
+  const input = el('input', { type: 'text', className: 'tt-input', placeholder: 'Type, pick a colour, repeat…' });
+  input.style.color = COLOR_HEX[line.active];
+  input._line = line;
+
+  const commit = () => {
+    if (input.value !== '') {
+      const seg = { color: line.active, text: input.value };
+      line.segments.push(seg);
+      segWrap.appendChild(makeTooltipChip(line, seg));
+      input.value = '';
+      line._pending = '';
+      updateItemPreview();
+    }
+  };
+  input.addEventListener('input', () => { line._pending = input.value; updateItemPreview(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+
+  const palette = el('div', { className: 'tt-palette' });
+  for (const c of TEXT_COLORS) {
+    const sw = el('span', { className: 'tt-swatch' });
+    sw.style.background = COLOR_HEX[c];
+    sw.title = c;
+    if (c === line.active) sw.classList.add('sel');
+    sw.addEventListener('click', () => {
+      commit();                       // commit what was typed in the previous colour
+      line.active = c;                // new colour applies to what's typed next
+      input.style.color = COLOR_HEX[c];
+      [...palette.children].forEach((x) => x.classList.remove('sel'));
+      sw.classList.add('sel');
+      input.focus();
+      updateItemPreview();
+    });
+    palette.appendChild(sw);
+  }
+
+  const addSeg = el('button', { className: 'secondary', textContent: 'Add' });
+  addSeg.addEventListener('click', () => { commit(); input.focus(); });
+  const rmLine = el('button', { className: 'secondary', textContent: '✕' });
+  rmLine.title = 'Remove line';
+  rmLine.addEventListener('click', () => {
+    const i = itemTooltipLines.indexOf(line);
+    if (i >= 0) itemTooltipLines.splice(i, 1);
+    renderTooltipLines();
+    updateItemPreview();
+  });
+
+  row.append(segWrap, input, palette, addSeg, rmLine);
+  return row;
+}
+
+function escapeJs(s) {
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+function tooltipColorCall(seg) {
+  return "Text." + COLOR_METHOD[seg.color] + "('" + escapeJs(seg.text) + "')";
+}
+function generateTooltipLines() {
+  const out = [];
+  for (const line of itemTooltipLines) {
+    const segs = line.segments.slice();
+    if (line._pending) segs.push({ color: line.active, text: line._pending });
+    if (segs.length === 0) continue;
+    let expr = tooltipColorCall(segs[0]);
+    for (let i = 1; i < segs.length; i++) expr += '.append(' + tooltipColorCall(segs[i]) + ')';
+    out.push('.tooltip(' + expr + ')');
+  }
+  return out;
+}
+
+function iconTexturePath(itemId) {
+  const parts = itemId.split(':');
+  const ns = parts[0];
+  const name = parts.length > 1 ? parts[1] : parts[0];
+  return ns + ':item/' + name;
+}
+
+function generateItemScript() {
+  const id = document.getElementById('item-id').value.trim() || 'my_item';
+  const type = itemTypeState.enabled ? itemTypeState.type : 'basic';
+  let s = "StartupEvents.registry('item', event => {\n";
+  s += "  event.create('" + id + "'" + (type && type !== 'basic' ? ", '" + type + "'" : '') + ")";
+
+  const lines = [];
+  for (const m of ITEM_METHODS) {
+    const st = itemMethodState[m.key];
+    if (!st.enabled) continue;
+    if (m.key === 'tooltip') generateTooltipLines().forEach((l) => lines.push(l));
+    else lines.push(m.gen(st.values));
+  }
+  // Icon-derived texture: only when no explicit texture method and no uploaded PNG
+  // (an uploaded PNG is auto-resolved by KubeJS from the item id, no .texture() needed).
+  if (!itemMethodState.texture.enabled && !itemIcon.file && itemIcon.itemId) {
+    lines.push(`.texture('${iconTexturePath(itemIcon.itemId)}')`);
+  }
+  if (itemTypeState.enabled) {
+    if (TOOL_TYPES.includes(type)) lines.push(`.tier('${itemTypeState.toolTier}')`);
+    else if (ARMOR_TYPES.includes(type)) lines.push(`.tier('${itemTypeState.armorTier}')`);
+  }
+  for (const ln of lines) s += '\n    ' + ln;
+  s += '\n})\n';
+
+  if (itemIcon.file) {
+    s = '// Custom texture will be saved to kubejs/assets/kubejs/textures/item/' + id + '.png\n' + s;
+  }
+  return s;
+}
+
+function updateItemPreview() {
+  document.getElementById('item-preview').textContent = generateItemScript();
+}
+
+/* ---- icon slot + upload ---- */
+const itemIconSlot = document.getElementById('item-icon-slot');
+itemIconSlot.addEventListener('dragover', (e) => { e.preventDefault(); itemIconSlot.classList.add('drag-over'); });
+itemIconSlot.addEventListener('dragleave', () => itemIconSlot.classList.remove('drag-over'));
+itemIconSlot.addEventListener('drop', (e) => {
+  e.preventDefault(); itemIconSlot.classList.remove('drag-over');
+  const id = e.dataTransfer.getData('text/plain');
+  if (id) { itemIcon.itemId = id; itemIcon.file = null; itemIcon.dataUrl = null; renderItemIcon(); updateIconNote(); updateItemPreview(); }
+});
+itemIconSlot.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  itemIcon.itemId = null; itemIcon.file = null; itemIcon.dataUrl = null;
+  renderItemIcon(); updateIconNote(); updateItemPreview();
+});
+document.getElementById('item-icon-upload').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  itemIcon.file = file; itemIcon.itemId = null;
+  const reader = new FileReader();
+  reader.onload = () => { itemIcon.dataUrl = reader.result; renderItemIcon(); };
+  reader.readAsDataURL(file);
+  updateIconNote(); updateItemPreview();
+});
+
+function renderItemIcon() {
+  itemIconSlot.innerHTML = '';
+  if (itemIcon.dataUrl) { itemIconSlot.appendChild(el('img', { src: itemIcon.dataUrl })); }
+  else if (itemIcon.itemId) { renderSlotImg(itemIconSlot, itemIcon.itemId); }
+}
+function updateIconNote() {
+  const note = document.getElementById('item-icon-note');
+  if (itemIcon.file) note.textContent = 'Custom PNG saved as <item id>.png on generate.';
+  else if (itemIcon.itemId) note.textContent = 'Using texture of ' + itemIcon.itemId;
+  else note.textContent = 'Drag an item for its texture, or upload a custom PNG.';
+}
+
+document.getElementById('item-id').addEventListener('input', updateItemPreview);
+document.getElementById('item-generate').addEventListener('click', () => {
+  const id = document.getElementById('item-id').value.trim();
+  if (!/^[a-z0-9_]+$/.test(id)) {
+    setResult('item-result', '✖ Item ID must use only lowercase letters, numbers and underscores', 'err');
+    return;
+  }
+  const script = generateItemScript();
+  const saveScript = () => fetch('/itembuilder/save?id=' + encodeURIComponent(id), {
+    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: script,
+  }).then((r) => r.json()).then((d) => {
+    if (d.success) setResult('item-result', '✔ ' + d.path + ' written! Restart the game to apply.', 'ok');
+    else setResult('item-result', '✖ ' + d.error, 'err');
+  });
+
+  if (itemIcon.file) {
+    fetch('/itembuilder/texture?id=' + encodeURIComponent(id), {
+      method: 'POST', headers: { 'Content-Type': 'image/png' }, body: itemIcon.file,
+    }).then((r) => r.json()).then((d) => {
+      if (!d.success) { setResult('item-result', '✖ Texture upload failed: ' + d.error, 'err'); return; }
+      return saveScript();
+    }).catch((e) => setResult('item-result', '✖ Request failed: ' + e, 'err'));
+  } else {
+    saveScript().catch((e) => setResult('item-result', '✖ Request failed: ' + e, 'err'));
+  }
+});
+
+/* ====================================================================== */
+/* BLOCKS TAB                                                               */
+/* ====================================================================== */
+const BLOCK_PROPS = [
+  { key: 'material', label: 'material', field: { type: 'text', placeholder: 'stone' }, gen: (v) => `block.material = '${v}'` },
+  { key: 'hasCollision', label: 'hasCollision', field: { type: 'bool', def: true }, gen: (v) => `block.hasCollision = ${v}` },
+  { key: 'destroySpeed', label: 'destroySpeed', field: { type: 'number', def: '1.0' }, gen: (v) => `block.destroySpeed = ${v}` },
+  { key: 'explosionResistance', label: 'explosionResistance', field: { type: 'number', def: '1.0' }, gen: (v) => `block.explosionResistance = ${v}` },
+  { key: 'randomlyTicking', label: 'randomlyTicking', field: { type: 'bool', def: false }, gen: (v) => `block.randomlyTicking = ${v}` },
+  { key: 'soundType', label: 'soundType', field: { type: 'text', placeholder: 'stone' }, gen: (v) => `block.soundType = '${v}'` },
+  { key: 'friction', label: 'friction', field: { type: 'number', def: '0.6' }, gen: (v) => `block.friction = ${v}` },
+  { key: 'speedFactor', label: 'speedFactor', field: { type: 'number', def: '1.0' }, gen: (v) => `block.speedFactor = ${v}` },
+  { key: 'jumpFactor', label: 'jumpFactor', field: { type: 'number', def: '1.0' }, gen: (v) => `block.jumpFactor = ${v}` },
+  { key: 'lightEmission', label: 'lightEmission', field: { type: 'number', def: '0' }, gen: (v) => `block.lightEmission = ${v}` },
+];
+const BLOCK_EVENTS = [
+  { key: 'broken', label: 'When broken', cancel: true },
+  { key: 'leftClicked', label: 'When left clicked', cancel: false },
+  { key: 'rightClicked', label: 'When right clicked', cancel: false },
+  { key: 'placed', label: 'When placed', cancel: false },
+];
+
+const blockTarget = { id: null };
+const blockPropState = {};
+BLOCK_PROPS.forEach((p) => {
+  blockPropState[p.key] = { enabled: false, collapsed: false, value: p.field.def !== undefined ? p.field.def : '' };
+});
+const blockReplaceState = { enabled: false, collapsed: false };
+const blockEventState = {};
+BLOCK_EVENTS.forEach((e) => { blockEventState[e.key] = { enabled: false, replacement: null }; });
+
+// A 40px slot that accepts an item dragged from the palette (right-click clears).
+function makeDropSlot(getId, setId) {
+  const slot = el('div', { className: 'recipe-slot' });
+  slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('drag-over'); });
+  slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
+  slot.addEventListener('drop', (e) => {
+    e.preventDefault(); slot.classList.remove('drag-over');
+    const id = e.dataTransfer.getData('text/plain');
+    if (id) { setId(id); renderSlotImg(slot, id); }
+  });
+  slot.addEventListener('contextmenu', (e) => { e.preventDefault(); setId(null); renderSlotImg(slot, null); });
+  renderSlotImg(slot, getId());
+  return slot;
+}
+
+// Generic collapsible toggle card (used for block properties + the Replace section).
+function blockToggleCard(labelText, st, buildBody) {
+  const card = el('div', { className: 'method-card' });
+  const head = el('div', { className: 'method-head' });
+  const lab = el('label', { className: 'inline grow' });
+  const cb = el('input', { type: 'checkbox' });
+  cb.checked = st.enabled;
+  lab.append(cb, document.createTextNode(' ' + labelText));
+  const collapse = el('button', { className: 'collapse-btn', textContent: '▾' });
+  head.append(lab, collapse);
+  const body = el('div', { className: 'method-body' });
+  buildBody(body);
+  card.append(head, body);
+  const sync = () => {
+    body.style.display = (st.enabled && !st.collapsed) ? 'flex' : 'none';
+    collapse.style.display = st.enabled ? 'inline-block' : 'none';
+    collapse.textContent = st.collapsed ? '▸' : '▾';
+  };
+  cb.addEventListener('change', () => { st.enabled = cb.checked; if (!st.enabled) st.collapsed = false; sync(); updateBlockPreview(); });
+  collapse.addEventListener('click', () => { st.collapsed = !st.collapsed; sync(); });
+  sync();
+  return card;
+}
+
+function buildBlockPropCard(p) {
+  const st = blockPropState[p.key];
+  return blockToggleCard(p.label, st, (body) => {
+    const f = p.field;
+    if (f.type === 'bool') {
+      const lab = el('label', { className: 'inline' });
+      const cb = el('input', { type: 'checkbox' });
+      cb.checked = !!st.value;
+      cb.addEventListener('change', () => { st.value = cb.checked; updateBlockPreview(); });
+      lab.append(cb, document.createTextNode(' value'));
+      body.appendChild(lab);
+    } else {
+      const lab = el('label', { className: 'field', textContent: 'value' });
+      const inp = el('input', { type: f.type === 'number' ? 'number' : 'text', value: st.value || '' });
+      if (f.placeholder) inp.placeholder = f.placeholder;
+      inp.addEventListener('input', () => { st.value = inp.value; updateBlockPreview(); });
+      lab.appendChild(inp);
+      body.appendChild(lab);
+    }
+  });
+}
+
+function buildReplaceCard() {
+  return blockToggleCard('Replace', blockReplaceState, (body) => {
+    body.style.flexDirection = 'column';
+    body.style.alignItems = 'stretch';
+    for (const e of BLOCK_EVENTS) {
+      const est = blockEventState[e.key];
+      const row = el('div', { className: 'block-evt-row' });
+      const lab = el('label', { className: 'inline' });
+      const cb = el('input', { type: 'checkbox' });
+      cb.checked = est.enabled;
+      lab.append(cb, document.createTextNode(' ' + e.label));
+      const slotWrap = el('div', { className: 'block-evt-slot' });
+      slotWrap.append(
+        el('span', { className: 'hint', textContent: 'replace with' }),
+        makeDropSlot(() => est.replacement, (id) => { est.replacement = id; updateBlockPreview(); }),
+      );
+      const sync = () => { slotWrap.style.display = est.enabled ? 'flex' : 'none'; };
+      cb.addEventListener('change', () => { est.enabled = cb.checked; sync(); updateBlockPreview(); });
+      sync();
+      row.append(lab, slotWrap);
+      body.appendChild(row);
+    }
+  });
+}
+
+function renderBlockBuilder() {
+  const wrap = document.getElementById('block-target-wrap');
+  wrap.innerHTML = '';
+  wrap.appendChild(makeDropSlot(() => blockTarget.id, (id) => {
+    blockTarget.id = id;
+    const f = document.getElementById('block-id');
+    if (id && !f.value) f.value = id.split(':').pop().replace(/[^a-z0-9_]/g, '_');
+    updateBlockTargetNote();
+    updateBlockPreview();
+  }));
+  const props = document.getElementById('block-props');
+  props.innerHTML = '';
+  for (const p of BLOCK_PROPS) props.appendChild(buildBlockPropCard(p));
+  const rep = document.getElementById('block-replace');
+  rep.innerHTML = '';
+  rep.appendChild(buildReplaceCard());
+}
+
+function updateBlockTargetNote() {
+  document.getElementById('block-target-note').textContent =
+    blockTarget.id ? 'Target: ' + blockTarget.id : 'Drag a block from the palette.';
+}
+
+function generateBlockScripts() {
+  const target = blockTarget.id || 'minecraft:stone';
+
+  const modLines = [];
+  for (const p of BLOCK_PROPS) {
+    const st = blockPropState[p.key];
+    if (st.enabled) modLines.push(p.gen(st.value));
+  }
+  let startup = null;
+  if (modLines.length) {
+    startup = "BlockEvents.modification(event => {\n  event.modify('" + target + "', block => {\n"
+      + modLines.map((l) => '    ' + l).join('\n') + '\n  })\n})\n';
+  }
+
+  let server = null;
+  if (blockReplaceState.enabled) {
+    const blocks = [];
+    for (const e of BLOCK_EVENTS) {
+      const est = blockEventState[e.key];
+      if (est.enabled && est.replacement) {
+        let inner = "  event.block.set('" + est.replacement + "')\n";
+        if (e.cancel) inner += '  event.cancel()\n';
+        blocks.push('BlockEvents.' + e.key + "('" + target + "', event => {\n" + inner + '})\n');
+      }
+    }
+    if (blocks.length) server = blocks.join('\n');
+  }
+  return { startup, server };
+}
+
+function updateBlockPreview() {
+  const { startup, server } = generateBlockScripts();
+  let preview = '';
+  if (startup) preview += '// startup_scripts/generated/<id>.js\n' + startup + '\n';
+  if (server) preview += '// server_scripts/generated/<id>.js\n' + server;
+  if (!preview) preview = '// Toggle a property or a Replace option to generate a script.';
+  document.getElementById('block-preview').textContent = preview;
+}
+
+function saveBlock(id, dest, script) {
+  return fetch('/blockbuilder/save?dest=' + dest + '&id=' + encodeURIComponent(id), {
+    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: script,
+  }).then((r) => r.json()).then((d) => (d.success ? { ok: true, path: d.path } : { ok: false, error: d.error }));
+}
+
+document.getElementById('block-generate').addEventListener('click', () => {
+  const id = document.getElementById('block-id').value.trim();
+  if (!/^[a-z0-9_]+$/.test(id)) {
+    setResult('block-result', '✖ Script ID must use only lowercase letters, numbers and underscores', 'err');
+    return;
+  }
+  if (!blockTarget.id) { setResult('block-result', '✖ Add a target block first', 'err'); return; }
+  const { startup, server } = generateBlockScripts();
+  if (!startup && !server) { setResult('block-result', '✖ Toggle a property or a Replace option first', 'err'); return; }
+
+  const tasks = [];
+  if (startup) tasks.push(saveBlock(id, 'startup', startup));
+  if (server) tasks.push(saveBlock(id, 'server', server));
+  Promise.all(tasks).then((results) => {
+    const oks = results.filter((r) => r.ok).map((r) => r.path);
+    const errs = results.filter((r) => !r.ok).map((r) => r.error);
+    if (errs.length) setResult('block-result', '✖ ' + errs.join('; '), 'err');
+    else setResult('block-result', '✔ Wrote ' + oks.join(', ') + ' (startup = restart game, server = /kubejs reload)', 'ok');
+  }).catch((e) => setResult('block-result', '✖ Request failed: ' + e, 'err'));
+});
+
+/* ====================================================================== */
+/* SCRIPT BROWSER TAB                                                       */
+/* ====================================================================== */
+let sbCurrent = null;
+const sbEditor = createCodeEditor(document.getElementById('sb-editor'), null);
+
+function loadScriptTree() {
+  fetch('/scripts/tree').then((r) => r.json()).then((data) => {
+    const c = document.getElementById('sb-tree');
+    c.innerHTML = '';
+    if (!data.tree || data.tree.length === 0) {
+      c.appendChild(el('div', { className: 'hint', textContent: 'No .js scripts found under kubejs/.' }));
+      return;
+    }
+    for (const node of data.tree) c.appendChild(renderScriptNode(node));
+  }).catch(() => {});
+}
+
+function renderScriptNode(node) {
+  if (node.type === 'folder') {
+    const wrap = el('div', { className: 'tree-node tree-folder' });
+    const label = el('div', { className: 'tree-label' });
+    label.appendChild(el('span', { className: 'tree-name folder-name', textContent: node.name }));
+    const children = el('div', { className: 'tree-children' });
+    label.addEventListener('click', () => { children.style.display = children.style.display === 'none' ? 'block' : 'none'; });
+    for (const ch of (node.children || [])) children.appendChild(renderScriptNode(ch));
+    wrap.append(label, children);
+    return wrap;
+  }
+  const file = el('div', { className: 'tree-node tree-file' });
+  file.appendChild(el('span', { className: 'tree-name', textContent: node.name }));
+  file.dataset.path = node.path;
+  file.addEventListener('click', () => {
+    document.querySelectorAll('#sb-tree .tree-file').forEach((f) => f.classList.remove('selected'));
+    file.classList.add('selected');
+    openScript(node);
+  });
+  file.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openContextMenu(e, [
+      { label: 'Edit', action: () => openScript(node) },
+      { label: 'Rename', action: () => renameScript(node) },
+      { label: 'Delete', action: () => deleteScript(node) },
+    ]);
+  });
+  return file;
+}
+
+function openScript(node) {
+  fetch('/scripts/file?path=' + encodeURIComponent(node.path)).then((r) => r.text()).then((text) => {
+    sbCurrent = node;
+    document.getElementById('sb-title').textContent = node.name;
+    document.getElementById('sb-path').textContent = node.path;
+    sbEditor.setValue(text);
+    sbEditor.refresh();
+    document.getElementById('sb-toggle').textContent = node.name.endsWith('.disabled') ? 'Enable' : 'Disable';
+    setResult('sb-result', '', '');
+  });
+}
+
+function clearScriptEditor() {
+  sbCurrent = null;
+  sbEditor.setValue('');
+  document.getElementById('sb-title').textContent = 'Editor';
+  document.getElementById('sb-path').textContent = '';
+}
+
+document.getElementById('sb-save').addEventListener('click', () => {
+  if (!sbCurrent) { setResult('sb-result', '✖ Open a script first', 'err'); return; }
+  fetch('/scripts/save?path=' + encodeURIComponent(sbCurrent.path), {
+    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: sbEditor.getValue(),
+  }).then((r) => r.json()).then((d) => {
+    if (d.success) { setResult('sb-result', '✔ Saved ' + sbCurrent.name, 'ok'); showToast('Saved ' + sbCurrent.name); }
+    else setResult('sb-result', '✖ ' + d.error, 'err');
+  }).catch((e) => setResult('sb-result', '✖ Request failed: ' + e, 'err'));
+});
+document.getElementById('sb-rename').addEventListener('click', () => { if (sbCurrent) renameScript(sbCurrent); });
+document.getElementById('sb-delete').addEventListener('click', () => { if (sbCurrent) deleteScript(sbCurrent); });
+document.getElementById('sb-toggle').addEventListener('click', () => {
+  if (!sbCurrent) { setResult('sb-result', '✖ Open a script first', 'err'); return; }
+  const enabling = sbCurrent.name.endsWith('.disabled');
+  fetch('/scripts/toggle?path=' + encodeURIComponent(sbCurrent.path), { method: 'POST' })
+    .then((r) => r.json()).then((d) => {
+      if (d.success) { showToast(enabling ? 'Enabled' : 'Disabled'); clearScriptEditor(); loadScriptTree(); }
+      else setResult('sb-result', '✖ ' + d.error, 'err');
+    });
+});
+
+function renameScript(node) {
+  const newName = prompt('New file name:', node.name);
+  if (!newName) return;
+  fetch('/scripts/rename?path=' + encodeURIComponent(node.path) + '&newName=' + encodeURIComponent(newName), { method: 'POST' })
+    .then((r) => r.json()).then((d) => {
+      if (d.success) { showToast('Renamed to ' + newName); if (sbCurrent && sbCurrent.path === node.path) clearScriptEditor(); loadScriptTree(); }
+      else showToast('Rename failed: ' + d.error);
+    });
+}
+function deleteScript(node) {
+  if (!confirm('Delete ' + node.name + '?')) return;
+  fetch('/scripts/file?path=' + encodeURIComponent(node.path), { method: 'DELETE' })
+    .then((r) => r.json()).then((d) => {
+      if (d.success) { showToast('Deleted ' + node.name); if (sbCurrent && sbCurrent.path === node.path) clearScriptEditor(); loadScriptTree(); }
+      else showToast('Delete failed: ' + d.error);
+    });
+}
+
+/* ====================================================================== */
+/* RAW SCRIPT TAB                                                           */
+/* ====================================================================== */
+const rawEditor = createCodeEditor(document.getElementById('raw-editor'), null);
+// Tracks where the currently-open content came from so Save can write back in place.
+let rawOrigin = { kind: null, path: null };
+
+// Splits an absolute template path into { rel, location } relative to a template root.
+function templateRelLocation(absPath) {
+  const markers = [['kubejs-gui-templates/', 'universal'], ['kubejs_gui_templates/', 'instance']];
+  for (const [m, loc] of markers) {
+    const i = absPath.indexOf(m);
+    if (i >= 0) return { rel: absPath.slice(i + m.length), location: loc };
+  }
+  return null;
+}
+
+function rawPickerNode(node, onFile) {
+  if (node.type === 'folder') {
+    const wrap = el('div', { className: 'tree-node tree-folder' });
+    const label = el('div', { className: 'tree-label' });
+    label.appendChild(el('span', { className: 'tree-name folder-name', textContent: node.name }));
+    const children = el('div', { className: 'tree-children' });
+    label.addEventListener('click', () => { children.style.display = children.style.display === 'none' ? 'block' : 'none'; });
+    for (const c of (node.children || [])) children.appendChild(rawPickerNode(c, onFile));
+    wrap.append(label, children);
+    return wrap;
+  }
+  const file = el('div', { className: 'tree-node tree-file' });
+  file.appendChild(el('span', { className: 'tree-name', textContent: node.name }));
+  file.addEventListener('click', () => onFile(node));
+  return file;
+}
+
+function loadRawScript(node) {
+  fetch('/scripts/file?path=' + encodeURIComponent(node.path)).then((r) => r.text()).then((text) => {
+    rawEditor.setValue(text);
+    document.getElementById('raw-name').value = node.name.replace(/\.js$/, '');
+    const p = node.path;
+    let type = 'server';
+    if (p.includes('/client_scripts/')) type = 'client';
+    else if (p.includes('/startup_scripts/')) type = 'startup';
+    document.getElementById('raw-type').value = type;
+    rawOrigin = { kind: 'script', path: node.path };
+    setResult('raw-result', 'Loaded ' + node.name, 'ok');
+  });
+}
+
+function loadRawTemplate(node) {
+  fetch('/templates/file?path=' + encodeURIComponent(node.path)).then((r) => r.text()).then((text) => {
+    const tpl = parseTemplate(text);
+    rawEditor.setValue(tpl.script);
+    document.getElementById('raw-name').value = tpl.meta.name || node.name;
+    document.getElementById('raw-author').value = tpl.meta.author || '';
+    const t = tpl.meta.type || 'server';
+    document.getElementById('raw-type').value = ['server', 'client', 'startup', 'template'].includes(t) ? t : 'server';
+    rawOrigin = { kind: 'template', path: node.path };
+    setResult('raw-result', 'Loaded template ' + (tpl.meta.name || node.name), 'ok');
+  });
+}
+
+function openRawLoad() {
+  const body = el('div');
+  const scriptsWrap = el('div', { className: 'tree' });
+  const tplWrap = el('div', { className: 'tree' });
+  body.append(
+    el('div', { className: 'cm-meta', textContent: 'Scripts (.js)' }), scriptsWrap,
+    el('hr'),
+    el('div', { className: 'cm-meta', textContent: 'Templates (.kubeguitemplate)' }), tplWrap,
+  );
+  const close = showModal('Load script or template', body, [{ label: 'Close', primary: true }]);
+  Promise.all([
+    fetch('/scripts/tree').then((r) => r.json()),
+    fetch('/templates').then((r) => r.json()),
+  ]).then(([s, t]) => {
+    const sr = s.tree || [];
+    const tr = t.tree || [];
+    if (sr.length) sr.forEach((n) => scriptsWrap.appendChild(rawPickerNode(n, (node) => { loadRawScript(node); close(); })));
+    else scriptsWrap.appendChild(el('div', { className: 'hint', textContent: 'No scripts found.' }));
+    if (tr.length) tr.forEach((n) => tplWrap.appendChild(rawPickerNode(n, (node) => { loadRawTemplate(node); close(); })));
+    else tplWrap.appendChild(el('div', { className: 'hint', textContent: 'No templates found.' }));
+  });
+}
+
+// Builds a .kubeguitemplate text (mirror of RawScriptHandler.buildTemplate) for in-place saves.
+function buildRawTemplate(name, author, type, script) {
+  return '# Generated by KubeJS GUI 2\n\n# --- METADATA ---\n'
+    + 'name;' + name.replace(/[;\r\n]/g, ' ') + '\n'
+    + 'author;' + (author || 'unknown') + '\nversion;1.0.0\ntype;' + type + '\n'
+    + '\n# --- SCRIPT ---\nSCRIPT_START\n' + script + (script.endsWith('\n') ? '' : '\n') + 'SCRIPT_END\n';
+}
+
+document.getElementById('raw-new').addEventListener('click', () => {
+  rawEditor.setValue('');
+  document.getElementById('raw-name').value = '';
+  document.getElementById('raw-author').value = '';
+  rawOrigin = { kind: null, path: null };
+  setResult('raw-result', '', '');
+});
+document.getElementById('raw-load').addEventListener('click', openRawLoad);
+document.getElementById('raw-save').addEventListener('click', () => {
+  const name = document.getElementById('raw-name').value.trim();
+  if (!name) { setResult('raw-result', '✖ Enter a name', 'err'); return; }
+  const type = document.getElementById('raw-type').value;
+  const author = document.getElementById('raw-author').value.trim();
+  const script = rawEditor.getValue();
+
+  // Editing an existing .js — save back in place (move folders if the type changed).
+  // If switched to "Template", fall through to publishing a new .kubeguitemplate instead.
+  if (rawOrigin.kind === 'script' && type !== 'template') {
+    let origType = null;
+    if (rawOrigin.path.includes('/server_scripts/')) origType = 'server';
+    else if (rawOrigin.path.includes('/client_scripts/')) origType = 'client';
+    else if (rawOrigin.path.includes('/startup_scripts/')) origType = 'startup';
+    const sameFolder = !origType || origType === type;
+    const targetPath = sameFolder ? rawOrigin.path
+      : rawOrigin.path.replace('/' + origType + '_scripts/', '/' + type + '_scripts/');
+    fetch('/scripts/save?path=' + encodeURIComponent(targetPath), {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: script,
+    }).then((r) => r.json()).then((d) => {
+      if (!d.success) { setResult('raw-result', '✖ ' + d.error, 'err'); return; }
+      if (!sameFolder) {
+        fetch('/scripts/file?path=' + encodeURIComponent(rawOrigin.path), { method: 'DELETE' }).catch(() => {});
+        rawOrigin.path = targetPath;
+      }
+      setResult('raw-result', '✔ Saved ' + d.path, 'ok');
+      showToast('Saved');
+    }).catch((e) => setResult('raw-result', '✖ Request failed: ' + e, 'err'));
+    return;
+  }
+
+  // Editing an existing template — overwrite it in its original folder.
+  if (rawOrigin.kind === 'template') {
+    const info = templateRelLocation(rawOrigin.path);
+    if (info) {
+      const content = buildRawTemplate(name, author, type, script);
+      fetch('/templates/save?location=' + info.location + '&path=' + encodeURIComponent(info.rel) + '&overwrite=true', {
+        method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: content,
+      }).then((r) => r.json()).then((d) => {
+        if (d.success) { setResult('raw-result', '✔ Saved template: ' + d.path, 'ok'); showToast('Saved'); }
+        else setResult('raw-result', '✖ ' + d.error, 'err');
+      }).catch((e) => setResult('raw-result', '✖ Request failed: ' + e, 'err'));
+      return;
+    }
+  }
+
+  // New content — publish a template (templates root) + a runnable .js in <type>_scripts.
+  const qs = '?name=' + encodeURIComponent(name) + '&type=' + type + '&author=' + encodeURIComponent(author);
+  fetch('/rawscript/save' + qs, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: script })
+    .then((r) => r.json()).then((d) => {
+      if (d.success) {
+        let msg = '✔ Saved template: ' + d.templatePath;
+        if (d.scriptPath) msg += '   +   script: ' + d.scriptPath;
+        setResult('raw-result', msg, 'ok');
+        showToast('Saved');
+      } else {
+        setResult('raw-result', '✖ ' + d.error, 'err');
+      }
+    }).catch((e) => setResult('raw-result', '✖ Request failed: ' + e, 'err'));
+});
+
+/* ====================================================================== */
+/* COMMUNITY TAB                                                            */
+/* ====================================================================== */
+let communityEntries = [];
+let communityRepoErrors = [];
+let communityRepos = [];
+const warnedRepos = new Set();
+const installedKeys = new Map(); // entryKey -> 'installed' | 'updated'
+
+function entryKey(e) { return e.repoUrl + '|' + e.type + '|' + e.name; }
+function isDefaultRepo(url) {
+  const r = communityRepos.find((x) => x.url === url);
+  return r ? r.isDefault : false;
+}
+
+/* ---- generic modal ---- */
+function showModal(title, bodyNode, buttons) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  const modal = el('div', { className: 'modal' });
+  modal.appendChild(el('h3', { textContent: title }));
+  modal.appendChild(bodyNode);
+  const actions = el('div', { className: 'modal-actions' });
+  const close = () => document.body.removeChild(overlay);
+  for (const b of buttons) {
+    const btn = el('button', { textContent: b.label });
+    if (!b.primary) btn.className = 'secondary';
+    btn.addEventListener('click', () => { if (b.action) b.action(); if (b.keepOpen !== true) close(); });
+    actions.appendChild(btn);
+  }
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.body.appendChild(overlay);
+  return close;
+}
+
+const THIRD_PARTY_TEXT =
+  'Scripts and templates from community repositories are not reviewed or verified by the '
+  + 'KubeJS GUI 2 author. Only download content from sources you trust. You accept the risk '
+  + 'of third-party repository content — the author of KubeJS GUI 2 cannot be held accountable '
+  + 'for any third-party repository content.';
+
+function showThirdPartyWarning(url, onConfirm) {
+  const body = el('div');
+  body.appendChild(el('p', { className: 'warn', textContent: '⚠ Third-party repository content' }));
+  body.appendChild(el('p', { textContent: 'You are about to use content from:' }));
+  body.appendChild(el('p', { className: 'repo-url', textContent: url }));
+  body.appendChild(el('p', { textContent: THIRD_PARTY_TEXT }));
+  showModal('Third-Party Repository', body, [
+    { label: 'Cancel' },
+    { label: 'I Understand, Continue', primary: true, action: onConfirm },
+  ]);
+}
+
+/* ---- load + render ---- */
+function loadCommunity() {
+  const list = document.getElementById('cm-list');
+  list.textContent = 'Loading…';
+  Promise.all([
+    fetch('/community/entries').then((r) => r.json()),
+    fetch('/community/repos').then((r) => r.json()),
+  ]).then(([e, rs]) => {
+    communityEntries = e.entries || [];
+    communityRepoErrors = e.repoErrors || [];
+    communityRepos = (rs && rs.repos) || [];
+    renderCommunity();
+  }).catch(() => { list.textContent = 'Failed to load community content.'; });
+}
+
+function renderCommunity() {
+  // repo filter options
+  const repoSel = document.getElementById('cm-repo');
+  const prev = repoSel.value;
+  repoSel.innerHTML = '<option value="all">All</option>';
+  const seen = new Set();
+  for (const e of communityEntries) {
+    const key = e.repoUrl;
+    if (!seen.has(key)) { seen.add(key); repoSel.appendChild(el('option', { value: key, textContent: e.repoName || e.repoUrl })); }
+  }
+  if ([...repoSel.options].some((o) => o.value === prev)) repoSel.value = prev;
+
+  // errors banner
+  const errEl = document.getElementById('cm-errors');
+  errEl.innerHTML = '';
+  if (communityRepoErrors.length) {
+    errEl.textContent = '⚠ ' + communityRepoErrors.length + ' repo(s) failed to load — see Manage Repos.';
+  }
+
+  const search = document.getElementById('cm-search').value.trim().toLowerCase();
+  const typeFilter = document.getElementById('cm-type').value;
+  const repoFilter = document.getElementById('cm-repo').value;
+
+  const list = document.getElementById('cm-list');
+  list.innerHTML = '';
+  const filtered = communityEntries.filter((e) => {
+    if (typeFilter !== 'all' && e.type !== typeFilter) return false;
+    if (repoFilter !== 'all' && e.repoUrl !== repoFilter) return false;
+    if (search) {
+      const hay = (e.name + ' ' + (e.tags || []).join(' ')).toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    list.appendChild(el('div', { className: 'hint', textContent: 'No entries. Add a repo via Manage Repos or adjust filters.' }));
+    return;
+  }
+  for (const e of filtered) list.appendChild(buildCommunityCard(e));
+}
+
+function buildCommunityCard(e) {
+  const card = el('div', { className: 'cm-card' });
+  const head = el('div', { className: 'cm-card-head' });
+  head.append(
+    el('span', { className: 'cm-name', textContent: e.name }),
+    el('span', { className: 'cm-author', textContent: 'by ' + (e.author || 'unknown') }),
+    el('span', { className: 'cm-type', textContent: e.type }),
+  );
+  card.appendChild(head);
+  if (e.description) card.appendChild(el('div', { className: 'cm-desc', textContent: e.description }));
+  card.appendChild(el('div', { className: 'cm-meta', textContent: 'Repo: ' + (e.repoName || e.repoUrl) }));
+  if (e.tags && e.tags.length) {
+    const tags = el('div', { className: 'cm-tags' });
+    for (const t of e.tags) tags.appendChild(el('span', { className: 'cm-tag', textContent: t }));
+    card.appendChild(tags);
+  }
+
+  const actions = el('div', { className: 'cm-card-actions' });
+  const viewBtn = el('button', { className: 'secondary', textContent: 'View' });
+  const dlBtn = el('button', { textContent: 'Download' });
+  const status = el('span', {});
+  const viewWrap = el('div', { className: 'cm-view' });
+
+  const installed = installedKeys.get(entryKey(e));
+  if (installed) { status.className = 'cm-installed'; status.textContent = installed === 'updated' ? '✔ Updated' : '✔ Installed'; }
+
+  viewBtn.addEventListener('click', () => {
+    if (viewWrap.dataset.open === '1') { viewWrap.innerHTML = ''; viewWrap.dataset.open = '0'; return; }
+    viewWrap.dataset.open = '1';
+    viewWrap.innerHTML = '';
+    const installPath = {
+      server: 'kubejs/server_scripts/community/', client: 'kubejs/client_scripts/community/',
+      startup: 'kubejs/startup_scripts/community/', template: 'kubejs/kubejs_gui_templates/community/',
+    }[e.type] || 'kubejs/';
+    const pre = el('pre', { className: 'preview', textContent: 'Loading…' });
+    viewWrap.append(
+      el('div', { className: 'cm-meta', textContent: e.name + ' — ' + e.type }),
+      pre,
+      el('div', { className: 'cm-meta', textContent: 'Will install to: ' + installPath }),
+    );
+    fetch('/community/file?url=' + encodeURIComponent(e.fileUrl))
+      .then((r) => r.text()).then((t) => { pre.textContent = t; })
+      .catch(() => { pre.textContent = 'Failed to load file.'; });
+  });
+
+  dlBtn.addEventListener('click', () => downloadEntry(e, status));
+
+  actions.append(viewBtn, dlBtn, status);
+  card.append(actions, viewWrap);
+  return card;
+}
+
+function downloadEntry(entry, statusEl) {
+  if (!isDefaultRepo(entry.repoUrl) && !warnedRepos.has(entry.repoUrl)) {
+    showThirdPartyWarning(entry.repoUrl, () => { warnedRepos.add(entry.repoUrl); doInstall(entry, statusEl); });
+    return;
+  }
+  doInstall(entry, statusEl);
+}
+
+function doInstall(entry, statusEl) {
+  statusEl.className = 'cm-meta';
+  statusEl.textContent = 'Installing…';
+  fetch('/community/install', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileUrl: entry.fileUrl, expectedType: entry.type, expectedName: entry.name }),
+  }).then((r) => r.json()).then((d) => {
+    if (d.success) {
+      installedKeys.set(entryKey(entry), d.updated ? 'updated' : 'installed');
+      statusEl.className = 'cm-installed';
+      statusEl.textContent = d.updated ? '✔ Updated' : '✔ Installed';
+      showToast(d.message || 'Installed');
+    } else {
+      statusEl.className = 'cm-card-err';
+      statusEl.textContent = '✖ ' + d.error;
+    }
+  }).catch((e) => { statusEl.className = 'cm-card-err'; statusEl.textContent = '✖ ' + e; });
+}
+
+/* ---- manage repos ---- */
+function openManageRepos() {
+  const body = el('div');
+  const listWrap = el('div');
+  body.appendChild(listWrap);
+
+  const renderRepoList = () => {
+    listWrap.innerHTML = '';
+    for (const r of communityRepos) {
+      const row = el('div', { className: 'repo-row' });
+      row.appendChild(el('div', { className: 'repo-url', textContent: r.url }));
+      const st = el('div', { className: 'repo-status' });
+      const label = r.error
+        ? el('span', { className: 'err', textContent: '✗ ' + r.error })
+        : el('span', { className: 'ok', textContent: '✔ ' + (r.repoName || 'Active') + ' — ' + r.entryCount + ' entries' });
+      st.appendChild(label);
+      if (r.isDefault) st.appendChild(el('span', { className: 'cm-tag', textContent: 'default' }));
+      const toggle = el('button', { className: 'secondary', textContent: r.enabled ? 'Disable' : 'Enable' });
+      toggle.addEventListener('click', () => repoToggle(r.url, !r.enabled, renderRepoList));
+      const rm = el('button', { className: 'secondary', textContent: 'Remove' });
+      rm.addEventListener('click', () => repoRemove(r, renderRepoList));
+      st.append(toggle, rm);
+      row.appendChild(st);
+      listWrap.appendChild(row);
+    }
+    if (!communityRepos.length) listWrap.appendChild(el('div', { className: 'hint', textContent: 'No repos configured.' }));
+  };
+  renderRepoList();
+
+  body.appendChild(el('hr'));
+  const addWrap = el('div', { className: 'row' });
+  const addInput = el('input', { type: 'text', placeholder: 'https://raw.githubusercontent.com/.../index.json' });
+  addInput.style.flex = '1';
+  const addBtn = el('button', { textContent: 'Add' });
+  addBtn.addEventListener('click', () => {
+    const url = addInput.value.trim();
+    if (!url.startsWith('https://')) { showToast('URL must start with https://'); return; }
+    showThirdPartyWarning(url, () => repoAdd(url, () => { addInput.value = ''; renderRepoList(); }));
+  });
+  addWrap.append(addInput, addBtn);
+  body.appendChild(addWrap);
+  body.appendChild(el('p', { className: 'hint', textContent: 'Only add repos from sources you trust. The author of KubeJS GUI 2 is not responsible for third-party content.' }));
+
+  showModal('Manage Repositories', body, [{ label: 'Close', primary: true }]);
+}
+
+function repoAdd(url, after) {
+  fetch('/community/repos/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })
+    .then((r) => r.json()).then((d) => {
+      if (d.success) { showToast('Added repo (' + d.entryCount + ' entries)'); reloadReposThen(after); }
+      else showToast('Add failed: ' + d.error);
+    });
+}
+function repoRemove(repo, after) {
+  const go = () => fetch('/community/repos/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: repo.url }) })
+    .then((r) => r.json()).then(() => { showToast('Removed'); reloadReposThen(after); });
+  if (repo.isDefault) {
+    if (confirm('You are removing the default repo. You can re-add it any time. Proceed?')) go();
+  } else go();
+}
+function repoToggle(url, enabled, after) {
+  fetch('/community/repos/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, enabled }) })
+    .then((r) => r.json()).then(() => reloadReposThen(after));
+}
+function reloadReposThen(after) {
+  Promise.all([
+    fetch('/community/entries').then((r) => r.json()),
+    fetch('/community/repos').then((r) => r.json()),
+  ]).then(([e, rs]) => {
+    communityEntries = e.entries || [];
+    communityRepoErrors = e.repoErrors || [];
+    communityRepos = (rs && rs.repos) || [];
+    renderCommunity();
+    if (after) after();
+  });
+}
+
+document.getElementById('cm-search').addEventListener('input', renderCommunity);
+document.getElementById('cm-type').addEventListener('change', renderCommunity);
+document.getElementById('cm-repo').addEventListener('change', renderCommunity);
+document.getElementById('cm-manage').addEventListener('click', openManageRepos);
+document.getElementById('cm-refresh').addEventListener('click', () => {
+  document.getElementById('cm-list').textContent = 'Refreshing…';
+  fetch('/community/repos/refresh', { method: 'POST' }).then(() => loadCommunity());
+});
+
+/* ====================================================================== */
+/* Boot                                                                    */
+/* ====================================================================== */
+// Snap-to-grid controls
+const snapToggle = document.getElementById('snap-toggle');
+const snapSizeInput = document.getElementById('snap-size');
+function updateCanvasGrid() {
+  const size = (snapEnabled ? snapSize : 20) + 'px';
+  builderCanvas.style.backgroundSize = size + ' ' + size;
+}
+snapToggle.addEventListener('change', () => { snapEnabled = snapToggle.checked; updateCanvasGrid(); });
+snapSizeInput.addEventListener('change', () => {
+  snapSize = Math.max(1, parseInt(snapSizeInput.value, 10) || 20);
+  snapSizeInput.value = snapSize;
+  updateCanvasGrid();
+});
+
+/* ====================================================================== */
+/* MODIFY TAB                                                              */
+/* ====================================================================== */
+let modifyInited = false;
+let recipeCache = null;       // [{ id, type, output, inputs:[] }]
+const itemInfoMap = {};       // id -> { id, displayName, maxDamage, maxStackSize }
+const MP = {};                // shared item pickers
+
+// A reusable item field: 40px drop slot + text input (datalist autocomplete) + clear.
+// Dragging from the palette or typing both update the value and fire onChange.
+function itemPicker(listId, onChange) {
+  let value = '';
+  const slot = el('div', { className: 'recipe-slot' });
+  const input = el('input', { type: 'text', placeholder: 'drag here or type id' });
+  if (listId) input.setAttribute('list', listId);
+  const clearBtn = el('button', { className: 'secondary', type: 'button', textContent: '✕' });
+  const fire = () => { if (onChange) onChange(); };
+  const setVal = (v) => {
+    value = (v || '').trim();
+    if (input.value !== value) input.value = value;
+    renderSlotImg(slot, value || null);
+    fire();
+  };
+  slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('drag-over'); });
+  slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
+  slot.addEventListener('drop', (e) => {
+    e.preventDefault(); slot.classList.remove('drag-over');
+    const id = e.dataTransfer.getData('text/plain');
+    if (id) setVal(id);
+  });
+  slot.addEventListener('contextmenu', (e) => { e.preventDefault(); setVal(''); });
+  input.addEventListener('input', () => { value = input.value.trim(); renderSlotImg(slot, value || null); fire(); });
+  clearBtn.addEventListener('click', () => setVal(''));
+  const wrap = el('div', { className: 'mod-field' });
+  wrap.style.margin = '0'; wrap.style.flex = '1';
+  wrap.append(slot, input, clearBtn);
+  return { wrap, get: () => value, set: setVal };
+}
+
+function fillDatalist(id, ids) {
+  const dl = document.getElementById(id);
+  if (!dl) return;
+  dl.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  ids.slice(0, 6000).forEach((v) => { const o = document.createElement('option'); o.value = v; frag.appendChild(o); });
+  dl.appendChild(frag);
+}
+
+function populateTypeDropdowns(types) {
+  ['mr-type', 'mr-scope-type'].forEach((selId) => {
+    const sel = document.getElementById(selId);
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">All types</option>';
+    types.forEach((t) => { const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o); });
+    sel.value = keep;
+  });
+}
+
+function buildModifyPickers() {
+  MP.output = itemPicker('dl-items', updateRecipePreview);
+  MP.input = itemPicker('dl-items', updateRecipePreview);
+  MP.find = itemPicker('dl-items', null);
+  MP.rep = itemPicker('dl-items', null);
+  MP.scopeOut = itemPicker('dl-items', updateRecipePreview);
+  document.getElementById('mr-output').appendChild(MP.output.wrap);
+  document.getElementById('mr-input').appendChild(MP.input.wrap);
+  document.getElementById('mr-find').appendChild(MP.find.wrap);
+  document.getElementById('mr-rep').appendChild(MP.rep.wrap);
+  document.getElementById('mr-scope-output').appendChild(MP.scopeOut.wrap);
+}
+
+function initModifyTab() {
+  if (modifyInited) return;
+  modifyInited = true;
+  buildModifyPickers();
+
+  ensureItemsRegistry();
+  fetch('/recipes/types').then((r) => r.json()).then((types) => populateTypeDropdowns(types || [])).catch(() => {});
+  fetch('/recipes/all').then((r) => r.json()).then((list) => {
+    recipeCache = list || [];
+    fillDatalist('dl-recipe-ids', recipeCache.map((r) => r.id));
+    updateRecipePreview();
+  }).catch(() => { recipeCache = []; updateRecipePreview(); });
+
+  // Recipe modification
+  document.getElementById('mr-op').addEventListener('change', () => { renderRecipeFields(); updateRecipePreview(); });
+  document.getElementById('mr-id').addEventListener('input', updateRecipePreview);
+  document.getElementById('mr-type').addEventListener('change', updateRecipePreview);
+  document.getElementById('mr-scope-type').addEventListener('change', updateRecipePreview);
+  document.getElementById('mr-generate').addEventListener('click', generateRecipeModify);
+  renderRecipeFields();
+}
+
+/* ---- recipe modification ---- */
+function isReplaceOp(op) { return op === 'replaceInput' || op === 'replaceOutput'; }
+
+function renderRecipeFields() {
+  const op = document.getElementById('mr-op').value;
+  const replace = isReplaceOp(op);
+  document.getElementById('mr-filters').style.display = replace ? 'none' : 'block';
+  document.getElementById('mr-replace').style.display = replace ? 'block' : 'none';
+}
+
+function recipeRemoveFilters() {
+  return {
+    output: MP.output.get(),
+    input: MP.input.get(),
+    type: document.getElementById('mr-type').value,
+    id: document.getElementById('mr-id').value.trim(),
+  };
+}
+
+function matchRecipes() {
+  if (!recipeCache) return null;
+  const op = document.getElementById('mr-op').value;
+  if (isReplaceOp(op)) {
+    const type = document.getElementById('mr-scope-type').value;
+    const output = MP.scopeOut.get();
+    const all = !type && !output;
+    const list = recipeCache.filter((r) => (!type || r.type === type) && (!output || r.output === output));
+    return { list, all };
+  }
+  const f = recipeRemoveFilters();
+  const all = !f.output && !f.input && !f.type && !f.id;
+  const list = recipeCache.filter((r) =>
+    (!f.output || r.output === f.output)
+    && (!f.input || (r.inputs || []).includes(f.input))
+    && (!f.type || r.type === f.type)
+    && (!f.id || r.id === f.id));
+  return { list, all };
+}
+
+function updateRecipePreview() {
+  const summary = document.getElementById('mr-preview-summary');
+  const box = document.getElementById('mr-preview');
+  box.innerHTML = '';
+  const m = matchRecipes();
+  if (m === null) { summary.textContent = 'Loading recipes…'; return; }
+  const { list, all } = m;
+  if (all) {
+    summary.innerHTML = '<span class="mod-warn">⚠ No filters set — this affects ALL loaded recipes ('
+      + recipeCache.length + ' total).</span>';
+  } else if (list.length === 0) {
+    summary.textContent = 'No recipes match current filters.';
+    return;
+  } else {
+    summary.textContent = 'Found ' + list.length + ' recipe' + (list.length === 1 ? '' : 's') + ' matching current filters:';
+  }
+  const shown = list.slice(0, 50);
+  for (const r of shown) {
+    const row = el('div', { className: 'mod-rec-row' });
+    row.append(
+      el('span', { textContent: r.id }),
+      el('span', { className: 'rtype', textContent: r.type.replace('minecraft:', '') }),
+      el('span', { textContent: r.output ? '→ ' + r.output.replace('minecraft:', '') : '' }),
+    );
+    box.appendChild(row);
+  }
+  if (list.length > 50) {
+    box.appendChild(el('div', { className: 'mod-note', textContent: '…and ' + (list.length - 50) + ' more. Consider narrowing filters.' }));
+  }
+}
+
+function generateRecipeModify() {
+  const id = document.getElementById('mr-scriptid').value.trim();
+  if (!/^[a-z0-9_]+$/.test(id)) {
+    setResult('mr-result', '✖ Script ID must use only lowercase letters, numbers and underscores', 'err');
+    return;
+  }
+  const op = document.getElementById('mr-op').value;
+  let body;
+  if (isReplaceOp(op)) {
+    const find = MP.find.get();
+    const replace = MP.rep.get();
+    if (!find || !replace) { setResult('mr-result', '✖ Replace needs both a Find and a Replace item', 'err'); return; }
+    const scopeFilters = {};
+    const st = document.getElementById('mr-scope-type').value;
+    const so = MP.scopeOut.get();
+    if (st) scopeFilters.type = st;
+    if (so) scopeFilters.output = so;
+    body = { operation: op, scopeFilters, find, replace, scriptId: id };
+  } else {
+    const f = recipeRemoveFilters();
+    const filters = {};
+    if (f.output) filters.output = f.output;
+    if (f.input) filters.input = f.input;
+    if (f.type) filters.type = f.type;
+    if (f.id) filters.id = f.id;
+    if (Object.keys(filters).length === 0
+      && !confirm('No filters set — this will REMOVE ALL loaded recipes. Are you sure?')) {
+      return;
+    }
+    body = { operation: 'remove', filters, scriptId: id };
+  }
+  postModify('/modify/recipe', body, 'mr-result');
+}
+
+function postModify(url, body, resultId) {
+  fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d.success) { setResult(resultId, '✖ ' + d.error, 'err'); return; }
+      const f = (d.filesGenerated || [])[0];
+      const apply = f && f.applyWith ? ' — apply with ' + f.applyWith : '';
+      setResult(resultId, '✔ Wrote ' + (f ? f.path : 'script') + apply, 'ok');
+      showToast('Generated');
+    })
+    .catch((e) => setResult(resultId, '✖ Request failed: ' + e, 'err'));
+}
+
+/* ====================================================================== */
+/* TAGS TAB + shared registry/tag helpers                                  */
+/* ====================================================================== */
+let itemsRegistryLoaded = false;
+function ensureItemsRegistry() {
+  if (itemsRegistryLoaded) return;
+  itemsRegistryLoaded = true;
+  fetch('/items/registry').then((r) => r.json()).then((list) => {
+    fillDatalist('dl-items', list.map((i) => i.id));
+    for (const i of list) itemInfoMap[i.id] = i;
+  }).catch(() => {});
+}
+
+// Shows an item slot's value: an item icon, or a tag chip when the value starts with '#'.
+function slotShow(slot, val) {
+  slot.innerHTML = '';
+  if (val && String(val).startsWith('#')) {
+    slot.appendChild(el('div', { className: 'el-tagchip', textContent: val }));
+  } else {
+    renderSlotImg(slot, val);
+  }
+}
+
+let ITEM_TAGS = null; // cached item tags for the tag-in-slot picker
+function ensureItemTags() {
+  if (ITEM_TAGS !== null) return Promise.resolve(ITEM_TAGS);
+  ITEM_TAGS = [];
+  return fetch('/tags?type=item').then((r) => r.json()).then((d) => { ITEM_TAGS = d.tags || []; return ITEM_TAGS; }).catch(() => ITEM_TAGS);
+}
+
+function openTagPicker(onPick) {
+  ensureItemTags().then((tags) => {
+    const overlay = el('div', { className: 'kg-modal' });
+    const panel = el('div', { className: 'kg-modal-panel' });
+    panel.appendChild(el('h2', { textContent: 'Select Item Tag' }));
+    const search = el('input', { type: 'text', placeholder: 'Search tags...' });
+    panel.appendChild(search);
+    const list = el('div', { className: 'kg-modal-list' });
+    panel.appendChild(list);
+    const cancel = el('button', { className: 'secondary', type: 'button', textContent: 'Cancel' });
+    cancel.addEventListener('click', () => document.body.removeChild(overlay));
+    panel.appendChild(cancel);
+    const render = () => {
+      const q = search.value.trim().toLowerCase();
+      list.innerHTML = '';
+      const shown = tags.filter((t) => !q || t.id.toLowerCase().includes(q)).slice(0, 300);
+      for (const t of shown) {
+        const row = el('div', { className: 'tag-row' });
+        row.append(el('span', { textContent: t.id }), el('span', { className: 'cnt', textContent: t.memberCount + ' members' }));
+        row.addEventListener('click', () => { document.body.removeChild(overlay); onPick(t.id); });
+        list.appendChild(row);
+      }
+      if (!shown.length) list.appendChild(el('div', { className: 'mod-note', textContent: 'No item tags found.' }));
+    };
+    search.addEventListener('input', render);
+    render();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) document.body.removeChild(overlay); });
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    search.focus();
+  });
+}
+
+/* ---- fluid registry (shared by fluid slots) ---- */
+let FLUIDS = [];
+let FLUID_TAGS = null; // lazily loaded on first use of fluid-tag mode
+function loadFluids() {
+  fetch('/fluids').then((r) => r.json()).then((d) => {
+    FLUIDS = (d && d.fluids) || [];
+    fillDatalist('dl-fluids', FLUIDS);
+  }).catch(() => {});
+}
+function ensureFluidTags() {
+  if (FLUID_TAGS !== null) return Promise.resolve(FLUID_TAGS);
+  FLUID_TAGS = [];
+  return fetch('/tags?type=fluid').then((r) => r.json()).then((d) => {
+    FLUID_TAGS = (d.tags || []).map((t) => t.id);
+    fillDatalist('dl-fluid-tags', FLUID_TAGS);
+    return FLUID_TAGS;
+  }).catch(() => FLUID_TAGS);
+}
+
+loadInitialItems();
+connectEvents();
+loadFluids();
+loadTemplateTree('mt-tree', onPickTemplate); // My Templates is the default tab
+initElementPalette();
+refreshInsertButtons();
+updateBuilderPreview();
+renderItemMethods();
+updateItemPreview();
+renderBlockBuilder();
+updateBlockPreview();
+updateBlockTargetNote();
+</script>
+</body>
+</html>

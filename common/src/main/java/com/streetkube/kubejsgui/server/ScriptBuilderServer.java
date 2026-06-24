@@ -117,6 +117,9 @@ public final class ScriptBuilderServer {
         // Fluid picker + Tags tab.
         httpServer.createContext("/fluids", withCors(new com.streetkube.kubejsgui.fluid.FluidHandler()));
         httpServer.createContext("/tags", withCors(new com.streetkube.kubejsgui.tags.TagHandler()));
+
+        // Settings (custom universal templates folder, etc.).
+        httpServer.createContext("/config", withCors(new ConfigHandler()));
     }
 
     /**

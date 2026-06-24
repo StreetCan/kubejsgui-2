@@ -445,6 +445,16 @@
   <div id="main-area">
     <!-- ============ MY TEMPLATES TAB ============ -->
     <section class="tab-pane active" id="tab-mytemplates">
+      <div class="panel" style="margin-bottom:12px;">
+        <h2>Universal templates folder</h2>
+        <div class="row">
+          <input type="text" id="cfg-universal-dir" placeholder="(default) leave blank, or e.g. /run/media/deck/SDCARD/kube-templates" style="flex:1;min-width:240px;">
+          <button id="cfg-universal-save">Save</button>
+          <button id="cfg-universal-clear" class="secondary">Use default</button>
+        </div>
+        <div class="hint" id="cfg-universal-note">Where "Save to Universal" stores templates. Leave blank to use the default location.</div>
+        <div id="cfg-result"></div>
+      </div>
       <div class="two-col">
         <div class="panel">
           <h2>Folder Tree</h2>
@@ -1858,7 +1868,8 @@ function doSave(location) {
   }
 
   // New template → ask where to put it.
-  const folder = prompt('Folder to save into (blank = root, use / for subfolders):', 'My Templates');
+  const folder = prompt('Subfolder name to save into (NOT a full path — e.g. "My Templates" or "recipes/ores"). '
+    + 'Templates are always stored in the mod\'s templates folder. Leave blank for the root.', 'My Templates');
   if (folder === null) return;
   const filename = tpl.meta.name.replace(/\s+/g, '_') + '.kubeguitemplate';
   const relPath = (folder.trim() ? folder.trim().replace(/^\/+|\/+$/g, '') + '/' : '') + filename;
@@ -3341,6 +3352,33 @@ function ensureFluidTags() {
     return FLUID_TAGS;
   }).catch(() => FLUID_TAGS);
 }
+
+/* ---- settings: custom universal templates folder ---- */
+function loadConfig() {
+  fetch('/config').then((r) => r.json()).then((d) => {
+    document.getElementById('cfg-universal-dir').value = d.universalDir || '';
+    document.getElementById('cfg-universal-note').textContent =
+      'Universal templates are saved to: ' + d.effectiveUniversalRoot + (d.universalDir ? '' : '  (default)')
+      + '. Leave blank to use the default (' + d.defaultUniversalRoot + ').';
+  }).catch(() => {});
+}
+function saveUniversalDir(dir) {
+  fetch('/config/universal-dir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dir }) })
+    .then((r) => r.json()).then((d) => {
+      if (!d.success) { setResult('cfg-result', '✖ ' + d.error, 'err'); return; }
+      setResult('cfg-result', '✔ Universal templates folder: ' + d.effectiveUniversalRoot, 'ok');
+      showToast('Saved');
+      loadConfig();
+      loadTemplateTree('mt-tree', onPickTemplate); // re-scan from the new location
+    }).catch((e) => setResult('cfg-result', '✖ Request failed: ' + e, 'err'));
+}
+document.getElementById('cfg-universal-save').addEventListener('click', () =>
+  saveUniversalDir(document.getElementById('cfg-universal-dir').value.trim()));
+document.getElementById('cfg-universal-clear').addEventListener('click', () => {
+  document.getElementById('cfg-universal-dir').value = '';
+  saveUniversalDir('');
+});
+loadConfig();
 
 loadInitialItems();
 connectEvents();

@@ -92,7 +92,9 @@ public final class TemplatesHandler implements HttpHandler {
         Path root = TemplateStorage.rootFor(location);
         Path target = TemplateStorage.resolveSafe(root, query.get("path"));
         if (target == null) {
-            error(exchange, 400, "invalid path");
+            error(exchange, 400, "Invalid path '" + query.get("path")
+                    + "'. Use a subfolder name only (letters, numbers, space, _ - . and /), not a full"
+                    + " filesystem path. Templates are saved under: " + root);
             return;
         }
         if (Files.exists(target) && !overwrite) {
@@ -115,7 +117,8 @@ public final class TemplatesHandler implements HttpHandler {
         Path root = TemplateStorage.rootFor(location);
         Path target = TemplateStorage.resolveSafe(root, query.get("path"));
         if (target == null) {
-            error(exchange, 400, "invalid path");
+            error(exchange, 400, "Invalid folder name '" + query.get("path")
+                    + "'. Use a subfolder name only (letters, numbers, space, _ - . and /).");
             return;
         }
         Files.createDirectories(target);

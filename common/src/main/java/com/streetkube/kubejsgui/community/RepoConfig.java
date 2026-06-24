@@ -30,7 +30,9 @@ public final class RepoConfig {
     }
 
     private static Path file() {
-        return TemplateStorage.universalRoot().resolve("kubejs-gui-repos.txt");
+        // Pinned to the default universal dir so the repo list doesn't move when the user
+        // points their templates folder elsewhere.
+        return TemplateStorage.defaultUniversalRoot().resolve("kubejs-gui-repos.txt");
     }
 
     public static synchronized void ensureExists() {

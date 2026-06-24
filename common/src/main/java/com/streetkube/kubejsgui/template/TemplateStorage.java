@@ -2,6 +2,7 @@ package com.streetkube.kubejsgui.template;
 
 import java.nio.file.Path;
 
+import com.streetkube.kubejsgui.config.GuiConfig;
 import com.streetkube.kubejsgui.platform.PlatformHelper;
 
 /**
@@ -15,8 +16,24 @@ public final class TemplateStorage {
     private TemplateStorage() {
     }
 
-    /** Cross-instance template directory, location depends on the OS. */
+    /**
+     * Cross-instance template directory. Returns the user-configured custom folder when set
+     * (see {@link GuiConfig#getUniversalDir()}), otherwise the OS default.
+     */
     public static Path universalRoot() {
+        String custom = GuiConfig.getUniversalDir();
+        if (custom != null && !custom.isBlank()) {
+            try {
+                return Path.of(custom);
+            } catch (RuntimeException ignored) {
+                // Fall back to the OS default if the stored path is somehow invalid.
+            }
+        }
+        return defaultUniversalRoot();
+    }
+
+    /** The built-in OS-specific universal directory (used as the fallback + for global config files). */
+    public static Path defaultUniversalRoot() {
         String os = System.getProperty("os.name", "").toLowerCase();
         if (os.contains("win")) {
             String appData = System.getenv("APPDATA");
